@@ -71,6 +71,7 @@ class CrossingDetector:
         self.forget_frames = Config.TRANSITION_FORGET_FRAMES if forget_frames is None else forget_frames
 
         self._prev_center: dict[int, tuple[float, float]] = {}
+        self._prev_bbox: dict[int, object] = {}
         self._last_seen: dict[int, int] = {}
         self._states: dict[tuple[int, int], _CrossingState] = {}
         self.dropped_tracks: list[int] = []
@@ -85,14 +86,16 @@ class CrossingDetector:
             present.add(track_id)
             center = _center(bbox)
             prev = self._prev_center.get(track_id)
+            prev_bbox = self._prev_bbox.get(track_id)
 
-            if prev is not None:
+            if prev is not None and prev_bbox is not None:
                 for line in self.camera.lines:
-                    event = self._update_crossing(line, track_id, center, prev, frame_id)
+                    event = self._update_crossing(line, track_id, bbox, center, prev, prev_bbox, frame_id)
                     if event is not None:
                         events.append(event)
 
             self._prev_center[track_id] = center
+            self._prev_bbox[track_id] = bbox
             self._last_seen[track_id] = frame_id
 
         self._release_missing(present)
@@ -103,8 +106,10 @@ class CrossingDetector:
             self,
             line: TransitionLine,
             track_id: int,
+            bbox,
             center: tuple[float, float],
             prev: tuple[float, float],
+            prev_bbox,
             frame_id: int,
     ):
         key = (track_id, line.line_id)
@@ -124,12 +129,27 @@ class CrossingDetector:
                 state.far_frames = 0
             return None
 
-        # Главное условие: центр bbox должен пройти через отрезок линии.
-        if not line.center_crosses(prev, center):
-            return None
-
         motion = (center[0] - prev[0], center[1] - prev[1])
         if line.alignment(motion) < MIN_MOTION_ALIGNMENT:
+            return None
+
+        center_crossed = line.center_crosses(prev, center)
+
+        # YOLO мог создать bbox уже после линии. В этом случае смотрим на
+        # заднюю относительно движения грань bbox.
+        late_detection = False
+        if not center_crossed:
+            prev_side = line.signed_distance(prev)
+            current_side = line.signed_distance(center)
+            if prev_side * current_side > 0 and current_side != 0:
+                rear_edge_distance = line.signed_bbox_rear_edge_distance(bbox, motion)
+                motion_side = line._dot_normal(motion)
+                late_detection = (
+                    current_side * motion_side > 0
+                    and rear_edge_distance <= Config.TRANSITION_LATE_EDGE_TOLERANCE_PX
+                )
+
+        if not center_crossed and not late_detection:
             return None
 
         state.fired = True
@@ -162,5 +182,6 @@ class CrossingDetector:
         for track_id in self.dropped_tracks:
             self._last_seen.pop(track_id, None)
             self._prev_center.pop(track_id, None)
+            self._prev_bbox.pop(track_id, None)
             for key in [k for k in self._states if k[0] == track_id]:
                 del self._states[key]
