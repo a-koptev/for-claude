@@ -163,6 +163,25 @@ def test_center_crossing_does_not_depend_on_bbox_size():
     assert events[0].role is Role.EXIT
 
 
+
+def test_stationary_or_jittering_track_never_triggers_transition():
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1, release_margin_px=10, min_move_px=2,
+    )
+    assert detector.update(0, [(10, (400, 500, 800, 620))]) == []
+    assert detector.update(1, [(10, (400, 501, 800, 621))]) == []
+    assert detector.update(2, [(10, (400, 500, 800, 620))]) == []
+
+
+def test_movement_filter_runs_before_bbox_line_check():
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1, release_margin_px=10, min_move_px=5,
+    )
+    assert detector.update(0, [(10, (400, 550, 800, 650))]) == []
+    assert detector.update(1, [(10, (400, 553, 800, 653))]) == []
+
 def test_bbox_straddles_line_uses_two_edges_and_motion():
     transition_line = line()
     assert transition_line.bbox_straddles_line((400, 550, 800, 650), (0, 20))
