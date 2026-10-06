@@ -163,33 +163,26 @@ def test_center_crossing_does_not_depend_on_bbox_size():
     assert events[0].role is Role.EXIT
 
 
-def test_late_detection_accepts_bbox_not_fully_over_line():
+def test_bbox_straddles_line_uses_two_edges_and_motion():
+    transition_line = line()
+    assert transition_line.bbox_straddles_line((400, 550, 800, 650), (0, 20))
+    assert not transition_line.bbox_straddles_line((400, 400, 800, 590), (0, 20))
+    assert not transition_line.bbox_straddles_line((400, 610, 800, 710), (0, 20))
+    assert transition_line.bbox_straddles_line((400, 550, 800, 650), (0, -20))
+
+
+def test_detector_uses_bbox_edges_not_center():
     detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
-    # Первый bbox уже после линии, но задняя грань ещё не прошла её.
-    assert detector.update(0, [(10, (400, 610, 800, 710))]) == []
-    events = detector.update(1, [(10, (400, 620, 800, 720))])
+    # Центр остаётся выше линии, но bbox пересёк её двумя границами.
+    assert detector.update(0, [(10, (400, 500, 800, 590))]) == []
+    events = detector.update(1, [(10, (400, 500, 800, 620))])
     assert len(events) == 1
-    assert events[0].from_camera == 1
     assert events[0].to_camera == 5
 
-def test_late_detection_accepts_edge_within_ten_pixels():
-    detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
-    # Центр далеко за линией, но задняя грань выступает всего на 5 px.
-    assert detector.update(0, [(10, (400, 602, 800, 702))]) == []
-    events = detector.update(1, [(10, (400, 605, 800, 705))])
-    assert len(events) == 1
 
-def test_late_detection_rejects_fully_crossed_vehicle():
-    detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
-    # Вся машина уже за линией более чем на 10 px.
-    assert detector.update(0, [(10, (400, 700, 800, 800))]) == []
-    assert detector.update(1, [(10, (400, 710, 800, 810))]) == []
+# Старые тесты позднего детектирования удалены: переход теперь определяется
+# положением обеих границ bbox относительно линии.
 
-def test_late_detection_uses_motion_direction():
-    detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
-    # Центр за линией, но движется обратно к ней: это не поздний EXIT.
-    assert detector.update(0, [(10, (400, 610, 800, 710))]) == []
-    assert detector.update(1, [(10, (400, 605, 800, 705))]) == []
 
 def test_segment_intersects_box_diagonal():
     assert segment_intersects_box((0, 0), (100, 100), (40, 40, 60, 60))
