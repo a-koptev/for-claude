@@ -19,14 +19,13 @@ class Config:
 
     # Сеть камер и линии перехода (см. TopologyModule, проверка: python check_topology.py)
     TOPOLOGY_CONFIG_PATH = str(BASE_DIR / "topology.yaml")
-    # Детектор переходов: событие возникает только когда центр bbox
-    # реально пересёк отрезок линии перехода.
+    # Детектор переходов: событие возникает, когда линия находится
+    # между двумя границами bbox при движении автомобиля.
     # Сколько кадров центр должен находиться дальше release_margin_px,
     # чтобы после одного перехода разрешить следующее срабатывание.
     TRANSITION_RELEASE_FRAMES = 5
     # Минимальное расстояние центра от линии для снятия блокировки повторного события.
     TRANSITION_RELEASE_MARGIN_PX = 30
-    TRANSITION_LATE_EDGE_TOLERANCE_PX = 10
     # Через сколько кадров без трека забываем его состояние (не меньше TRACKLET_LOST_TTL_FRAMES)
     TRANSITION_FORGET_FRAMES = 150
 
