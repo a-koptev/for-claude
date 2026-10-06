@@ -43,7 +43,14 @@ def test_shipped_template_has_nine_cameras():
     network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 
     assert network.camera_ids == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert network.transitions == frozenset({\n        (1, 4), (4, 1), (1, 9), (9, 1),\n        (2, 4), (4, 2), (2, 9), (9, 2),\n        (3, 4), (4, 3), (3, 9), (9, 3),\n        (4, 5), (5, 4), (5, 6), (6, 5),\n        (6, 7), (7, 6), (7, 8), (8, 7),\n        (8, 9), (9, 8),\n    })
+    assert network.transitions == frozenset({
+        (1, 4), (4, 1), (1, 9), (9, 1),
+        (2, 4), (4, 2), (2, 9), (9, 2),
+        (3, 4), (4, 3), (3, 9), (9, 3),
+        (4, 5), (5, 4), (5, 6), (6, 5),
+        (6, 7), (7, 6), (7, 8), (8, 7),
+        (8, 9), (9, 8),
+    })
     assert all(network.camera(i).frame_size == (1280, 720) for i in network.camera_ids)
 
 
@@ -138,7 +145,11 @@ def test_center_crosses_only_when_center_changes_side():
 
 def test_center_crossing_does_not_depend_on_bbox_size():
     transition_line = line()
-    detector = CrossingDetector(\n        CameraNetwork.from_dict(make_config()).camera(1),\n        release_frames=1,\n        release_margin_px=10,\n    )
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1,
+        release_margin_px=10,
+    )
 
     # Большой bbox уже касается линии верхней границей, но его центр ещё выше.
     # Переход не должен фиксироваться.
@@ -164,8 +175,8 @@ def test_late_detection_accepts_bbox_not_fully_over_line():
 def test_late_detection_accepts_edge_within_ten_pixels():
     detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
     # Центр далеко за линией, но задняя грань выступает всего на 5 px.
-    assert detector.update(0, [(10, (400, 605, 800, 695))]) == []
-    events = detector.update(1, [(10, (400, 615, 800, 705))])
+    assert detector.update(0, [(10, (400, 602, 800, 702))]) == []
+    events = detector.update(1, [(10, (400, 605, 800, 705))])
     assert len(events) == 1
 
 def test_late_detection_rejects_fully_crossed_vehicle():
