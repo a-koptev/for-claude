@@ -51,7 +51,9 @@ class CrossingDetector:
         self.camera = camera
         # Параметр оставлен для совместимости конструктора старого кода.
         # Факт движения определяется по разнице центров двух последовательных bbox.
-        self.min_move_px = min_move_px
+        self.min_move_px = (
+            Config.TRANSITION_MIN_MOVE_PX if min_move_px is None else min_move_px
+        )
         self.release_frames = (
             Config.TRANSITION_RELEASE_FRAMES if release_frames is None else release_frames
         )
@@ -120,6 +122,13 @@ class CrossingDetector:
             return None
 
         motion = (center[0] - prev[0], center[1] - prev[1])
+        # КРИТИЧЕСКИЙ порядок: сначала отбрасываем стоящие/почти стоящие
+        # машины по величине движения. Только после этого проверяем линии.
+        move_distance = (motion[0] ** 2 + motion[1] ** 2) ** 0.5
+        if move_distance < self.min_move_px:
+            return None
+
+        # Второй фильтр: движение должно быть достаточно поперёк линии.
         if line.alignment(motion) < MIN_MOTION_ALIGNMENT:
             return None
 
