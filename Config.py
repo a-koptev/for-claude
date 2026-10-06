@@ -26,6 +26,7 @@ class Config:
     TRANSITION_RELEASE_FRAMES = 5
     # Минимальное расстояние центра от линии для снятия блокировки повторного события.
     TRANSITION_RELEASE_MARGIN_PX = 30
+    TRANSITION_LATE_EDGE_TOLERANCE_PX = 10
     # Через сколько кадров без трека забываем его состояние (не меньше TRACKLET_LOST_TTL_FRAMES)
     TRANSITION_FORGET_FRAMES = 150
 
