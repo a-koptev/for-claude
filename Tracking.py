@@ -25,6 +25,45 @@ network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 camera = network.camera(CAMERA_ID)
 crossing_detector = CrossingDetector(camera)
 
+def draw_transition_lines(image):
+    """Рисует линии переходов текущей камеры и стрелки направления EXIT."""
+    for line in camera.lines:
+        p1 = tuple(map(int, line.p1))
+        p2 = tuple(map(int, line.p2))
+        cv2.line(image, p1, p2, (0, 0, 255), 3)
+
+        direction = line.exit_direction.value
+        if direction == "RIGHT":
+            ex, ey = 1.0, 0.0
+        elif direction == "LEFT":
+            ex, ey = -1.0, 0.0
+        elif direction == "DOWN":
+            ex, ey = 0.0, 1.0
+        else:
+            ex, ey = 0.0, -1.0
+
+        cx = int((p1[0] + p2[0]) / 2)
+        cy = int((p1[1] + p2[1]) / 2)
+        cv2.arrowedLine(
+            image,
+            (int(cx - ex * 30), int(cy - ey * 30)),
+            (int(cx + ex * 30), int(cy + ey * 30)),
+            (0, 255, 255),
+            3,
+            tipLength=0.35,
+        )
+
+        cv2.putText(
+            image,
+            f"L{line.line_id} -> Cam {line.peer_camera}",
+            (p1[0] + 5, p1[1] - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (0, 0, 255),
+            2,
+        )
+
+
 if network.warnings:
     print("Предупреждения топологии:")
     for warning in network.warnings:
