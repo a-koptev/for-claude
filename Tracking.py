@@ -103,6 +103,7 @@ while True:
         break
 
     frame = cv2.resize(frame, (1280, 720))
+    draw_transition_lines(frame)
 
     results = model.track(
         frame,
