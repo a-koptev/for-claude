@@ -3,6 +3,7 @@ import pytest
 
 from Config import Config
 from TopologyModule.CameraNetwork import CameraNetwork, RouteSegment, TopologyError
+from TopologyModule.CrossingDetector import CrossingDetector
 from TopologyModule.TransitionLine import Direction, Role, TransitionLine, segment_intersects_box
 
 
@@ -42,7 +43,7 @@ def test_shipped_template_has_nine_cameras():
     network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 
     assert network.camera_ids == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert network.transitions == frozenset()
+    assert network.transitions == frozenset({\n        (1, 4), (4, 1), (1, 9), (9, 1),\n        (2, 4), (4, 2), (2, 9), (9, 2),\n        (3, 4), (4, 3), (3, 9), (9, 3),\n        (4, 5), (5, 4), (5, 6), (6, 5),\n        (6, 7), (7, 6), (7, 8), (8, 7),\n        (8, 9), (9, 8),\n    })
     assert all(network.camera(i).frame_size == (1280, 720) for i in network.camera_ids)
 
 
@@ -125,6 +126,30 @@ def test_vertical_line_with_left_right():
 ])
 def test_touches(bbox, expected):
     assert line().touches(bbox) is expected
+
+
+def test_center_crosses_only_when_center_changes_side():
+    transition_line = line()
+
+    assert transition_line.center_crosses((500, 590), (500, 610))
+    assert transition_line.center_crosses((500, 610), (500, 590))
+    assert not transition_line.center_crosses((500, 590), (500, 595))
+
+
+def test_center_crossing_does_not_depend_on_bbox_size():
+    transition_line = line()
+    detector = CrossingDetector(\n        CameraNetwork.from_dict(make_config()).camera(1),\n        release_frames=1,\n        release_margin_px=10,\n    )
+
+    # Большой bbox уже касается линии верхней границей, но его центр ещё выше.
+    # Переход не должен фиксироваться.
+    assert detector.update(0, [(10, (400, 500, 800, 590))]) == []
+
+    # Теперь центр действительно оказался ниже линии -> фиксируем переход.
+    events = detector.update(1, [(10, (400, 610, 800, 700))])
+    assert len(events) == 1
+    assert events[0].from_camera == 1
+    assert events[0].to_camera == 5
+    assert events[0].role is Role.EXIT
 
 
 def test_segment_intersects_box_diagonal():
