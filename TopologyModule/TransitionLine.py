@@ -94,7 +94,9 @@ class TransitionLine:
         x1, y1 = self.p1
         x2, y2 = self.p2
         px, py = point
-        return (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+        cross = (x2 - x1) * (py - y1) - (y2 - y1) * (px - x1)
+        line_length = self.length
+        return cross / line_length if line_length else 0.0
 
     def center_crosses(
             self,
