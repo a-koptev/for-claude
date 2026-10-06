@@ -124,6 +124,46 @@ class TransitionLine:
 
         return _segments_intersect(previous_center, current_center, self.p1, self.p2)
 
+    def signed_bbox_rear_edge_distance(
+            self,
+            bbox,
+            motion: tuple[float, float],
+    ) -> float:
+        """
+        Знаковое расстояние до границы bbox, ближайшей к линии со стороны,
+        откуда движется автомобиль.
+
+        Положительное значение означает, что эта граница уже за линией в
+        направлении движения, отрицательное — что часть автомобиля ещё
+        находится перед линией.
+        """
+        x1, y1, x2, y2 = (float(v) for v in bbox)
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+
+        nx, ny = self.normal
+        normal_length = self.length
+        if normal_length == 0:
+            return 0.0
+
+        # Единичная нормаль линии.
+        nx /= normal_length
+        ny /= normal_length
+
+        # Половина размера bbox в направлении нормали.
+        half_projection = (
+            abs(nx) * abs(x2 - x1) + abs(ny) * abs(y2 - y1)
+        ) / 2.0
+
+        center_distance = self.signed_distance((cx, cy))
+
+        # Выбираем грань bbox позади центра относительно движения.
+        motion_projection = motion[0] * nx + motion[1] * ny
+        if abs(motion_projection) < 1e-9:
+            return center_distance
+
+        motion_sign = 1.0 if motion_projection > 0 else -1.0
+        return center_distance - motion_sign * half_projection
+
     def touches(self, bbox) -> bool:
         """
         Совместимость со старой геометрией: пересекает ли bbox отрезок линии.
