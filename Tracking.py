@@ -3,17 +3,39 @@ import numpy as np
 from ultralytics import YOLO
 
 from Config import Config
+from TopologyModule.CameraNetwork import CameraNetwork
+from TopologyModule.CrossingDetector import CrossingDetector
 from TrackletModule.Tracklet import TrackletState
 from TrackletModule.TrackletManager import TrackletManager
 
 VIDEO_PATH = "../step_1/test_videos/1/side.ts"
 OUTPUT_PATH = "5009.mp4"
+CAMERA_ID = 1
+TRANSITION_LOG_PATH = "transitions.log"
 
 model = YOLO(Config.YOLO_CAR_MODEL_PATH)
 cap = cv2.VideoCapture(VIDEO_PATH)
 
 SHOW_VIDEO = True          # True - показывать на экране, False - только запись в файл
-USE_TRACKLET_MANAGER = False  # True - использовать TrackletManager, False - только BoT-SORT
+USE_TRACKLET_MANAGER = False  # False - текущий тест без Re-ID, только BoT-SORT + topology
+
+# Топология нужна уже на этом этапе: пока не идентифицируем машину, а только
+# фиксируем, через какую линию и в какую соседнюю камеру уходит track ID.
+network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
+camera = network.camera(CAMERA_ID)
+crossing_detector = CrossingDetector(camera)
+
+if network.warnings:
+    print("Предупреждения топологии:")
+    for warning in network.warnings:
+        print(f"  - {warning}")
+
+# Для текущего прогона пишем события и в консоль, и в файл.
+transition_log = open(TRANSITION_LOG_PATH, "w", encoding="utf-8")
+
+# Маршрут пока относится к локальному BoT-SORT track ID этой камеры.
+# Один и тот же numeric track ID на другой камере не считается тем же автомобилем.
+track_routes: dict[int, list[int]] = {}
 
 if not SHOW_VIDEO:
     output_size = (1280, 720)
@@ -26,7 +48,7 @@ if not SHOW_VIDEO:
 traclet_manager = None
 if USE_TRACKLET_MANAGER:
     traclet_manager = TrackletManager(
-        cam_id=0,
+        cam_id=CAMERA_ID,
         similarity_threshold=0.63,
         frames_for_confirm=3,
         frames_for_lost=5
@@ -43,8 +65,6 @@ while True:
 
     frame = cv2.resize(frame, (1280, 720))
 
-    H, W = frame.shape[:2]
-
     results = model.track(
         frame,
         persist=True,
@@ -57,8 +77,26 @@ while True:
     r = results[0]
 
     if r.boxes is None or r.boxes.id is None:
-        # Кадр без детекций тоже обязан дойти до менеджера и сдвинуть frame_id,
-        # иначе треки не переходят в LOST, а интервалы Re-ID считаются по застывшему счётчику
+        # Даже пустой кадр передаём детектору переходов: так он корректно
+        # завершает касания линий и забывает старые track ID.
+        events = crossing_detector.update(frame_id, [])
+
+        for event in events:
+            route = track_routes.setdefault(event.track_id, [event.from_camera])
+            if route[-1] != event.to_camera:
+                route.append(event.to_camera)
+            message = (
+                f"[TRANSITION] frame={event.frame_id} "
+                f"track={event.track_id} "
+                f"{event.from_camera} -> {event.to_camera} "
+                f"role={event.role.value} line={event.line_id} "
+                f"motion=({event.motion[0]:.1f},{event.motion[1]:.1f}) "
+                f"route={route}"
+            )
+            print(message)
+            transition_log.write(message + "\n")
+            transition_log.flush()
+
         if USE_TRACKLET_MANAGER:
             traclet_manager.update(
                 byte_track_bboxes=np.empty((0, 4)),
@@ -80,6 +118,27 @@ while True:
     boxes = r.boxes.xyxy.cpu().numpy()
     ids = r.boxes.id.cpu().numpy().astype(int)
     confs = r.boxes.conf.cpu().numpy()
+
+    # Сначала фиксируем переходы независимо от Re-ID/TrackletManager.
+    events = crossing_detector.update(
+        frame_id,
+        zip(ids, boxes)
+    )
+    for event in events:
+        route = track_routes.setdefault(event.track_id, [event.from_camera])
+        if route[-1] != event.to_camera:
+            route.append(event.to_camera)
+        message = (
+            f"[TRANSITION] frame={event.frame_id} "
+            f"track={event.track_id} "
+            f"{event.from_camera} -> {event.to_camera} "
+            f"role={event.role.value} line={event.line_id} "
+            f"motion=({event.motion[0]:.1f},{event.motion[1]:.1f}) "
+            f"route={route}"
+        )
+        print(message)
+        transition_log.write(message + "\n")
+        transition_log.flush()
 
     # --- Ветка с TrackletManager ---
     if USE_TRACKLET_MANAGER:
@@ -148,6 +207,8 @@ while True:
     frame_id += 1
 
 cap.release()
+transition_log.close()
+
 if not SHOW_VIDEO:
     out.release()
     print(f"Видео сохранено в: {OUTPUT_PATH}")
