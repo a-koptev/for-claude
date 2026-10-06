@@ -19,11 +19,10 @@ cap = cv2.VideoCapture(VIDEO_PATH)
 SHOW_VIDEO = True          # True - показывать на экране, False - только запись в файл
 USE_TRACKLET_MANAGER = False  # False - текущий тест без Re-ID, только BoT-SORT + topology
 
-# Топология нужна уже на этом этапе: пока не идентифицируем машину, а только
-# фиксируем, через какую линию и в какую соседнюю камеру уходит track ID.
 network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 camera = network.camera(CAMERA_ID)
 crossing_detector = CrossingDetector(camera)
+
 
 def draw_transition_lines(image):
     """Рисует линии переходов текущей камеры и стрелки направления EXIT."""
@@ -69,10 +68,9 @@ if network.warnings:
     for warning in network.warnings:
         print(f"  - {warning}")
 
-# Для текущего прогона пишем события и в консоль, и в файл.
 transition_log = open(TRANSITION_LOG_PATH, "w", encoding="utf-8")
 
-# Маршрут пока относится к локальному BoT-SORT track ID этой камеры.
+# Маршрут относится к локальному BoT-SORT track ID этой камеры.
 # Один и тот же numeric track ID на другой камере не считается тем же автомобилем.
 track_routes: dict[int, list[int]] = {}
 
@@ -103,10 +101,14 @@ while True:
         break
 
     frame = cv2.resize(frame, (1280, 720))
-    draw_transition_lines(frame)
+
+    # ВАЖНО: YOLO получает чистый кадр. Линии перехода рисуются только на
+    # отдельной копии для отображения, чтобы красные линии не влияли на детектор.
+    tracking_frame = frame
+    display_frame = frame.copy()
 
     results = model.track(
-        frame,
+        tracking_frame,
         persist=True,
         tracker=Config.YOLO_TRACK_CONFIG_PATH,
         conf=Config.YOLO_TRACK_CONF_THRESHOLD,
@@ -117,8 +119,6 @@ while True:
     r = results[0]
 
     if r.boxes is None or r.boxes.id is None:
-        # Даже пустой кадр передаём детектору переходов: так он корректно
-        # завершает касания линий и забывает старые track ID.
         events = crossing_detector.update(frame_id, [])
 
         for event in events:
@@ -142,13 +142,15 @@ while True:
                 byte_track_bboxes=np.empty((0, 4)),
                 byte_track_ids=np.empty((0,), dtype=int),
                 frame_id=frame_id,
-                frame=frame
+                frame=tracking_frame
             )
 
+        draw_transition_lines(display_frame)
+
         if SHOW_VIDEO:
-            cv2.imshow("Tracking", frame)
+            cv2.imshow("Tracking", display_frame)
         else:
-            out.write(frame)
+            out.write(display_frame)
 
         frame_id += 1
         if cv2.waitKey(1) == 27:
@@ -159,7 +161,6 @@ while True:
     ids = r.boxes.id.cpu().numpy().astype(int)
     confs = r.boxes.conf.cpu().numpy()
 
-    # Сначала фиксируем переходы независимо от Re-ID/TrackletManager.
     events = crossing_detector.update(
         frame_id,
         zip(ids, boxes)
@@ -180,13 +181,12 @@ while True:
         transition_log.write(message + "\n")
         transition_log.flush()
 
-    # --- Ветка с TrackletManager ---
     if USE_TRACKLET_MANAGER:
         traclet_manager.update(
             byte_track_bboxes=boxes,
             byte_track_ids=ids,
             frame_id=frame_id,
-            frame=frame
+            frame=tracking_frame
         )
 
         for box, track_id in zip(boxes, ids):
@@ -207,9 +207,9 @@ while True:
             else:
                 continue
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
-                frame,
+                display_frame,
                 label,
                 (x1, y1 - 5),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -217,17 +217,15 @@ while True:
                 color,
                 2
             )
-
-    # --- Ветка только с BoT-SORT ---
     else:
         for box, track_id, conf in zip(boxes, ids, confs):
             x1, y1, x2, y2 = map(int, box)
             color = (0, 255, 0)
             label = f"ID {track_id} {conf:.2f}"
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.rectangle(display_frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
-                frame,
+                display_frame,
                 label,
                 (x1, y1 - 5),
                 cv2.FONT_HERSHEY_SIMPLEX,
@@ -236,10 +234,12 @@ while True:
                 2
             )
 
+    draw_transition_lines(display_frame)
+
     if SHOW_VIDEO:
-        cv2.imshow("Tracking", frame)
+        cv2.imshow("Tracking", display_frame)
     else:
-        out.write(frame)
+        out.write(display_frame)
 
     if SHOW_VIDEO and cv2.waitKey(1) == 27:
         break
