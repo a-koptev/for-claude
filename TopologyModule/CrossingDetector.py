@@ -1,13 +1,4 @@
-"""
-Детектор переходов между камерами по движению bbox относительно линии.
-
-В обычном случае событие возникает, когда центр bbox пересекает линию.
-Если YOLO начал детектировать автомобиль поздно и центр уже находится за
-линией, используется положение задней относительно движения грани bbox с
-допуском TRANSITION_LATE_EDGE_TOLERANCE_PX.
-
-Само касание линии bbox не является достаточным условием перехода.
-"""
+"""Детектор переходов между камерами по движению и двум границам bbox."""
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -132,23 +123,10 @@ class CrossingDetector:
         if line.alignment(motion) < MIN_MOTION_ALIGNMENT:
             return None
 
-        center_crossed = line.center_crosses(prev, center)
-
-        # YOLO мог создать bbox уже после линии. В этом случае смотрим на
-        # заднюю относительно движения грань bbox.
-        late_detection = False
-        if not center_crossed:
-            prev_side = line.signed_distance(prev)
-            current_side = line.signed_distance(center)
-            if prev_side * current_side > 0 and current_side != 0:
-                rear_edge_distance = line.signed_bbox_rear_edge_distance(bbox, motion)
-                motion_side = line._dot_normal(motion)
-                late_detection = (
-                    current_side * motion_side > 0
-                    and rear_edge_distance <= Config.TRANSITION_LATE_EDGE_TOLERANCE_PX
-                )
-
-        if not center_crossed and not late_detection:
+        # Переход фиксируем, когда линия находится между двумя границами bbox
+        # при движении. Центр отдельно не используется: у края кадра bbox
+        # может уменьшаться, и его центр способен не пересечь линию.
+        if not line.bbox_straddles_line(bbox, motion):
             return None
 
         state.fired = True
