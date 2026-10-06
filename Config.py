@@ -19,6 +19,17 @@ class Config:
 
     # Сеть камер и линии перехода (см. TopologyModule, проверка: python check_topology.py)
     TOPOLOGY_CONFIG_PATH = str(BASE_DIR / "topology.yaml")
+    # Детектор пересечений линий (TopologyModule.CrossingDetector)
+    # Насколько (px) должен сместиться центр bbox, чтобы определить направление движения
+    TRANSITION_MIN_MOVE_PX = 15
+    # Сколько кадров подряд bbox не касается линии, чтобы пересечение считалось завершённым
+    # (защита от дрожания bbox на самой линии: иначе одно пересечение даст несколько событий)
+    TRANSITION_RELEASE_FRAMES = 5
+    # ...и при этом bbox отошёл от линии не меньше чем на столько px
+    # (дрожание bbox рядом с линией не должно давать повторных событий)
+    TRANSITION_RELEASE_MARGIN_PX = 30
+    # Через сколько кадров без трека забываем его состояние (не меньше TRACKLET_LOST_TTL_FRAMES)
+    TRANSITION_FORGET_FRAMES = 150
 
     YOLO_TRACK_CONFIG_PATH = str(BASE_DIR / "vehicle_botsort_conf.yaml")
     YOLO_CAR_MODEL_PATH = str(BASE_DIR / "Models/Tracking/YOLO26/1809_epoch0.pt")

@@ -7,9 +7,7 @@ import yaml
 
 from TopologyModule.TransitionLine import (
     MIN_MOTION_ALIGNMENT,
-    CrossingRule,
-    Edge,
-    Role,
+    Direction,
     TransitionLine,
 )
 
@@ -46,9 +44,11 @@ class CameraNetwork:
     """
     Сеть камер: камеры, их линии перехода и допустимые переходы между камерами.
 
-    Переход A -> B существует, если на камере A есть линия с правилом EXIT в B
-    или на камере B есть линия с правилом ENTER из A. Именно по этим переходам
-    потом строится candidate generation.
+    Линия на камере A с соседом B двусторонняя и задаёт сразу два перехода:
+    A -> B (EXIT, авто уезжает с A) и B -> A (ENTER, авто приехал на A из B).
+    Именно по этим переходам потом строится candidate generation.
+    Описывать линию на обеих камерах не обязательно, но желательно: так видно
+    пересечение с обеих сторон; если линия есть только с одной, будет предупреждение.
     """
 
     def __init__(
@@ -146,6 +146,10 @@ class CameraNetwork:
         """Откуда можно попасть на камеру."""
         return sorted(frm for frm, to in self._pairs if to == camera_id)
 
+    def lines_to(self, camera_id: int, peer_camera: int) -> tuple[TransitionLine, ...]:
+        """Линии камеры camera_id, которые ведут к камере peer_camera."""
+        return tuple(line for line in self.lines(camera_id) if line.peer_camera == peer_camera)
+
     def segment(self, from_camera: int, to_camera: int) -> Optional[RouteSegment]:
         """Участок маршрута; None, если такого перехода нет. Без явной настройки preserve_order=False."""
         if not self.has_transition(from_camera, to_camera):
@@ -160,11 +164,8 @@ class CameraNetwork:
         enters: set[tuple[int, int]] = set()
         for camera in cameras.values():
             for line in camera.lines:
-                for rule in line.rules:
-                    if rule.role is Role.EXIT:
-                        exits.add((camera.id, rule.camera))
-                    else:
-                        enters.add((rule.camera, camera.id))
+                exits.add((camera.id, line.peer_camera))
+                enters.add((line.peer_camera, camera.id))
         return exits, enters
 
     def _build_warnings(self) -> list[str]:
@@ -173,16 +174,14 @@ class CameraNetwork:
             if not self._cameras[camera_id].lines:
                 warnings.append(f"Камера {camera_id}: нет ни одной линии перехода")
 
-        for from_camera, to_camera in sorted(self._exit_pairs - self._enter_pairs):
-            warnings.append(
-                f"Переход {from_camera} -> {to_camera}: есть выходная линия (EXIT) на камере {from_camera}, "
-                f"но на камере {to_camera} нет входной линии (ENTER) из камеры {from_camera}"
-            )
-        for from_camera, to_camera in sorted(self._enter_pairs - self._exit_pairs):
-            warnings.append(
-                f"Переход {from_camera} -> {to_camera}: есть входная линия (ENTER) на камере {to_camera}, "
-                f"но на камере {from_camera} нет выходной линии (EXIT) в камеру {to_camera}"
-            )
+        # Линия A -> B есть, а на B нет ни одной линии к A: переход виден только с одной стороны
+        linked = {(camera.id, line.peer_camera) for camera in self._cameras.values() for line in camera.lines}
+        for camera_id, peer in sorted(linked):
+            if (peer, camera_id) not in linked:
+                warnings.append(
+                    f"Камеры {camera_id} и {peer}: линия есть на камере {camera_id}, "
+                    f"а на камере {peer} нет линии к камере {camera_id}"
+                )
 
         for from_camera, to_camera in sorted(self._segments):
             if (from_camera, to_camera) not in self._pairs:
@@ -236,25 +235,6 @@ def _parse_enum(enum_class, raw: Any, label: str, problems: list[str], required:
     return None
 
 
-def _parse_rule(raw: Any, index: int, where: str, problems: list[str]) -> Optional[CrossingRule]:
-    label = f"{where}, crossings[{index}]"
-    if not isinstance(raw, dict):
-        problems.append(f"{label}: ожидается словарь с ключами edge, role, camera")
-        return None
-
-    before = len(problems)
-    edge = _parse_enum(Edge, raw.get("edge"), f"{label}, edge", problems)
-    role = _parse_enum(Role, raw.get("role"), f"{label}, role", problems)
-    motion = _parse_enum(Edge, raw.get("motion"), f"{label}, motion", problems, required=False)
-    camera = raw.get("camera")
-    if not _is_int(camera):
-        problems.append(f"{label}, camera: ожидается номер камеры (целое число), получено {camera!r}")
-
-    if len(problems) > before:
-        return None
-    return CrossingRule(edge=edge, role=role, camera=camera, motion=motion)
-
-
 def _parse_line(
         raw: Any,
         camera_id: int,
@@ -263,7 +243,7 @@ def _parse_line(
         problems: list[str]
 ) -> Optional[TransitionLine]:
     if not isinstance(raw, dict):
-        problems.append(f"Камера {camera_id}: линия должна быть словарём (id, p1, p2, crossings)")
+        problems.append(f"Камера {camera_id}: линия должна быть словарём (id, p1, p2, peer, exit)")
         return None
     line_id = raw.get("id")
     if not _is_int(line_id):
@@ -271,48 +251,37 @@ def _parse_line(
         return None
 
     where = f"Камера {camera_id}, линия {line_id}"
+    before = len(problems)
     p1 = _parse_point(raw.get("p1"), f"{where}, p1", size, problems)
     p2 = _parse_point(raw.get("p2"), f"{where}, p2", size, problems)
-    degenerate = p1 is not None and p1 == p2
-    if degenerate:
+    if p1 is not None and p1 == p2:
         problems.append(f"{where}: p1 и p2 совпадают, у линии нулевая длина")
 
-    raw_rules = raw.get("crossings")
-    rules: list[CrossingRule] = []
-    if not isinstance(raw_rules, list) or not raw_rules:
-        problems.append(f"{where}: нужен непустой список crossings")
-    else:
-        for index, raw_rule in enumerate(raw_rules):
-            rule = _parse_rule(raw_rule, index, where, problems)
-            if rule is None:
-                continue
-            if rule.camera == camera_id:
-                problems.append(f"{where}: переход камеры {camera_id} в саму себя")
-            elif rule.camera not in known_ids:
-                problems.append(f"{where}: камеры {rule.camera} нет в списке cameras")
-            rules.append(rule)
+    peer = raw.get("peer")
+    if not _is_int(peer):
+        problems.append(f"{where}, peer: ожидается номер соседней камеры (целое число), получено {peer!r}")
+    elif peer == camera_id:
+        problems.append(f"{where}: линия ведёт в саму камеру {camera_id}")
+    elif peer not in known_ids:
+        problems.append(f"{where}: камеры {peer} нет в списке cameras")
 
-    if p1 is None or p2 is None or degenerate:
+    exit_direction = _parse_enum(Direction, raw.get("exit"), f"{where}, exit", problems)
+
+    if len(problems) > before:
         return None
-    line = TransitionLine(camera_id=camera_id, line_id=line_id, p1=p1, p2=p2, rules=tuple(rules))
+    line = TransitionLine(
+        camera_id=camera_id, line_id=line_id, p1=p1, p2=p2,
+        peer_camera=peer, exit_direction=exit_direction,
+    )
 
-    seen: dict[tuple[Edge, int], CrossingRule] = {}
-    for rule in rules:
-        motion = rule.motion_direction
-        if line.motion_alignment(motion) < MIN_MOTION_ALIGNMENT:
-            problems.append(
-                f"{where}: край {rule.edge.value} при движении {motion.value} почти параллелен линии, "
-                f"сторону пересечения не определить. Выберите край/motion поперёк линии"
-            )
-            continue
-        key = (rule.edge, line.rule_sign(rule))
-        if key in seen:
-            problems.append(
-                f"{where}: два правила для одного и того же пересечения "
-                f"(край {rule.edge.value}, движение {motion.value})"
-            )
-            continue
-        seen[key] = rule
+    # Направление выезда должно идти поперёк линии, иначе "туда" и "обратно" не различить
+    alignment = line.alignment(exit_direction.vector)
+    if alignment < MIN_MOTION_ALIGNMENT:
+        problems.append(
+            f"{where}: направление выезда {exit_direction.value} почти параллельно линии, "
+            f"туда и обратно не различить. Выберите направление поперёк линии"
+        )
+        return None
     return line
 
 
