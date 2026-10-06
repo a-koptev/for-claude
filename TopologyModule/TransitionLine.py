@@ -98,6 +98,34 @@ class TransitionLine:
         line_length = self.length
         return cross / line_length if line_length else 0.0
 
+    def bbox_straddles_line(
+            self,
+            bbox,
+            motion: tuple[float, float],
+    ) -> bool:
+        """True, если линия находится между двумя границами bbox по движению."""
+        x1, y1, x2, y2 = (float(v) for v in bbox)
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        nx, ny = self.normal
+        length = self.length
+        if length == 0:
+            return False
+        nx /= length
+        ny /= length
+
+        projection = motion[0] * nx + motion[1] * ny
+        if abs(projection) < 1e-9:
+            return False
+
+        half_projection = (
+            abs(nx) * abs(x2 - x1) + abs(ny) * abs(y2 - y1)
+        ) / 2.0
+        center_distance = self.signed_distance((cx, cy))
+        sign = 1.0 if projection > 0 else -1.0
+        rear = center_distance - sign * half_projection
+        front = center_distance + sign * half_projection
+        return rear <= 0 <= front or front <= 0 <= rear
+
     def center_crosses(
             self,
             previous_center: tuple[float, float],
