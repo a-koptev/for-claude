@@ -151,6 +151,7 @@ while True:
     r = results[0]
 
     if r.boxes is None or r.boxes.id is None:
+        ocr_cache.clear()
         events = crossing_detector.update(frame_id, [])
 
         for event in events:
@@ -192,6 +193,12 @@ while True:
     boxes = r.boxes.xyxy.cpu().numpy()
     ids = r.boxes.id.cpu().numpy().astype(int)
     confs = r.boxes.conf.cpu().numpy()
+
+    # Never display a cached plate for a track that is no longer present.
+    present_track_ids = {int(track_id) for track_id in ids}
+    for cached_track_id in list(ocr_cache):
+        if cached_track_id not in present_track_ids:
+            del ocr_cache[cached_track_id]
 
     events = crossing_detector.update(
         frame_id,
