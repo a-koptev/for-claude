@@ -4,6 +4,9 @@ from enum import Enum
 # Минимальный |cos| угла между движением и нормалью к линии.
 # Если авто едет почти вдоль линии, сказать, пересекает он её туда или обратно, нельзя.
 MIN_MOTION_ALIGNMENT = 0.5
+# Допуск за концами отрезка линии: bbox может немного выступить за p1/p2,
+# но автомобиль далеко за пределами линии не должен считаться пересёкшим её.
+LINE_ENDPOINT_TOLERANCE_PX = 30.0
 
 
 class Direction(Enum):
@@ -116,6 +119,20 @@ class TransitionLine:
 
         projection = motion[0] * nx + motion[1] * ny
         if abs(projection) < 1e-9:
+            return False
+
+        # Проверяем не бесконечную прямую, а сам конечный отрезок линии.
+        # Проекция bbox на направление линии должна пересекаться с отрезком
+        # (с небольшим допуском за его концы).
+        tx, ty = -ny, nx
+        center_along = (cx - self.p1[0]) * tx + (cy - self.p1[1]) * ty
+        half_along = (
+            abs(tx) * abs(x2 - x1) + abs(ty) * abs(y2 - y1)
+        ) / 2.0
+        tolerance = LINE_ENDPOINT_TOLERANCE_PX
+        if center_along + half_along < -tolerance:
+            return False
+        if center_along - half_along > length + tolerance:
             return False
 
         half_projection = (
