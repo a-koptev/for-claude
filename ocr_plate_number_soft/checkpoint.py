@@ -6,7 +6,10 @@ from typing import Any, Dict, Optional, Tuple
 
 import torch
 
-from parseq_gost_ocr import ModelConfig, PARSeqGostOCR, PlateAlphabet
+try:
+    from .parseq_gost_ocr import ModelConfig, PARSeqGostOCR, PlateAlphabet
+except ImportError:
+    from parseq_gost_ocr import ModelConfig, PARSeqGostOCR, PlateAlphabet
 
 
 def save_checkpoint(
