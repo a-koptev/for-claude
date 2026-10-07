@@ -37,8 +37,22 @@ class Config:
     # OSNET_MODEL_PATH = str(BASE_DIR / "Models/ReID/OSNet/model_veri_1.pth")
     OSNET_MODEL_PATH = str(BASE_DIR / "Models/ReID/OSNet/model_new_6.pth")
 
-    # YOLO_PLATE_MODEL_PATH = str(BASE_DIR / "Models/PlateRecognition/YOLOv8/best.pt")
-    # OCR_MODEL_PATH = str(BASE_DIR / "Models/PlateRecognition/OCR_CRNN/crnn_ocr_model_int8_fx.pth")
+    # OCR integration: plate detector runs inside the tracked vehicle crop, then PARSeq reads the plate crop.
+    YOLO_PLATE_MODEL_PATH = os.getenv(
+        "PARKING_PLATE_YOLO_MODEL_PATH",
+        str(BASE_DIR / "Models/PlateRecognition/YOLOv8/best.pt"),
+    )
+    OCR_MODEL_PATH = os.getenv(
+        "PARKING_OCR_MODEL_PATH",
+        str(BASE_DIR / "ocr_plate_number_soft/best_ocr.pt"),
+    )
+    OCR_EVERY_N_FRAMES = int(os.getenv("PARKING_OCR_EVERY_N_FRAMES", "5"))
+    OCR_PLATE_CONF_THRESHOLD = float(os.getenv("PARKING_PLATE_CONF_THRESHOLD", "0.50"))
+    OCR_PLATE_IOU_THRESHOLD = float(os.getenv("PARKING_PLATE_IOU_THRESHOLD", "0.50"))
+    OCR_PLATE_IMGSZ = int(os.getenv("PARKING_PLATE_IMGSZ", "640"))
+    OCR_DEVICE = os.getenv("PARKING_OCR_DEVICE", "auto")
+    OCR_BATCH_SIZE = int(os.getenv("PARKING_OCR_BATCH_SIZE", "32"))
+    OCR_MIN_CHAR_CONFIDENCE = float(os.getenv("PARKING_OCR_MIN_CHAR_CONFIDENCE", "0.0"))
 
     TRACKER_MOVEMENT_ALFA = 0.2
     TRACKER_MOVEMENT_MIN_SIZE = 30
