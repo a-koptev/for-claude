@@ -67,6 +67,7 @@ class CrossingDetector:
         self._last_seen: dict[int, int] = {}
         self._states: dict[tuple[int, int], _CrossingState] = {}
         self.dropped_tracks: list[int] = []
+        self._motion_by_track: dict[int, tuple[float, float]] = {}
 
     def update(self, frame_id: int, tracks: Iterable[tuple[int, object]]) -> list[TransitionEvent]:
         """tracks - (track_id, bbox xyxy) всех треков кадра."""
@@ -78,9 +79,12 @@ class CrossingDetector:
             present.add(track_id)
             center = _center(bbox)
             prev = self._prev_center.get(track_id)
+            self._motion_by_track[track_id] = (0.0, 0.0)
             prev_bbox = self._prev_bbox.get(track_id)
 
             if prev is not None and prev_bbox is not None:
+                motion = (center[0] - prev[0], center[1] - prev[1])
+                self._motion_by_track[track_id] = motion
                 for line in self.camera.lines:
                     event = self._update_crossing(line, track_id, bbox, center, prev, prev_bbox, frame_id)
                     if event is not None:
@@ -93,6 +97,11 @@ class CrossingDetector:
         self._release_missing(present)
         self._forget_old(frame_id)
         return events
+
+    def is_moving(self, track_id: int) -> bool:
+        """True when the latest bbox-center displacement passes the movement filter."""
+        motion = self._motion_by_track.get(int(track_id), (0.0, 0.0))
+        return (motion[0] ** 2 + motion[1] ** 2) ** 0.5 >= self.min_move_px
 
     def _update_crossing(
             self,
@@ -169,5 +178,6 @@ class CrossingDetector:
             self._last_seen.pop(track_id, None)
             self._prev_center.pop(track_id, None)
             self._prev_bbox.pop(track_id, None)
+            self._motion_by_track.pop(track_id, None)
             for key in [k for k in self._states if k[0] == track_id]:
                 del self._states[key]
