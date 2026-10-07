@@ -7,6 +7,7 @@ from TopologyModule.CameraNetwork import CameraNetwork
 from TopologyModule.CrossingDetector import CrossingDetector
 from TrackletModule.Tracklet import TrackletState
 from TrackletModule.TrackletManager import TrackletManager
+from PlateOCRModule import PlateOCRTracker, PlateReading
 
 VIDEO_PATH = "../step_1/test_videos/1/side.ts"
 OUTPUT_PATH = "5009.mp4"
@@ -23,6 +24,37 @@ network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 camera = network.camera(CAMERA_ID)
 crossing_detector = CrossingDetector(camera)
 
+# Plate OCR is intentionally independent from Re-ID for this test:
+# vehicle track bbox -> plate detector inside vehicle crop -> PARSeq OCR.
+plate_ocr = PlateOCRTracker(
+    plate_model_path=Config.YOLO_PLATE_MODEL_PATH,
+    ocr_checkpoint_path=Config.OCR_MODEL_PATH,
+    plate_conf=Config.OCR_PLATE_CONF_THRESHOLD,
+    plate_iou=Config.OCR_PLATE_IOU_THRESHOLD,
+    plate_imgsz=Config.OCR_PLATE_IMGSZ,
+    ocr_device=Config.OCR_DEVICE,
+    ocr_batch_size=Config.OCR_BATCH_SIZE,
+)
+ocr_cache: dict[int, PlateReading] = {}
+
+
+def draw_plate_label(image, box, track_id, reading):
+    """Draw the last successful plate OCR result above the vehicle track."""
+    x1, y1, x2, y2 = map(int, box)
+    label = f"ID {track_id} | {reading.text} OCR {reading.ocr_confidence * 100:.0f}%"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    scale = 0.65
+    thickness = 2
+    (tw, th), baseline = cv2.getTextSize(label, font, scale, thickness)
+    text_y = y1 - 8
+    if text_y - th - baseline < 0:
+        text_y = min(image.shape[0] - baseline - 4, y1 + th + baseline + 8)
+    bg_x1 = max(0, x1)
+    bg_y1 = max(0, text_y - th - baseline - 5)
+    bg_x2 = min(image.shape[1] - 1, x1 + tw + 10)
+    bg_y2 = min(image.shape[0] - 1, text_y + baseline + 5)
+    cv2.rectangle(image, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
+    cv2.putText(image, label, (x1 + 5, text_y), font, scale, (0, 255, 255), thickness, cv2.LINE_AA)
 
 def draw_transition_lines(image):
     """Рисует линии переходов текущей камеры и стрелки направления EXIT."""
@@ -181,6 +213,20 @@ while True:
         transition_log.write(message + "\n")
         transition_log.flush()
 
+    # OCR only for moving vehicles. The vehicle bbox comes directly from
+    # the existing YOLO + BoT-SORT tracker; Re-ID is not involved here.
+    if frame_id % max(1, Config.OCR_EVERY_N_FRAMES) == 0:
+        moving_tracks = [
+            (int(track_id), box)
+            for box, track_id in zip(boxes, ids)
+            if crossing_detector.is_moving(int(track_id))
+        ]
+        if moving_tracks:
+            readings = plate_ocr.recognize(tracking_frame, moving_tracks)
+            for track_id, reading in readings.items():
+                if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
+                    ocr_cache[track_id] = reading
+
     if USE_TRACKLET_MANAGER:
         traclet_manager.update(
             byte_track_bboxes=boxes,
@@ -233,6 +279,11 @@ while True:
                 color,
                 2
             )
+
+    for box, track_id in zip(boxes, ids):
+        reading = ocr_cache.get(int(track_id))
+        if reading is not None:
+            draw_plate_label(display_frame, box, int(track_id), reading)
 
     draw_transition_lines(display_frame)
 
