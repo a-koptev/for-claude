@@ -4,3 +4,6 @@ __pycache__
 .idea
 .venv
 videos
+ocr_plate_number_soft/best_ocr.pt
+ocr_plate_number_soft/best_yolo8.pt
+ocr_plate_number_soft/best_yolo26.pt
