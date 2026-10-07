@@ -7,7 +7,10 @@ from typing import Dict, Iterable, List, Optional, Sequence
 import torch
 from PIL import Image
 
-from checkpoint import load_checkpoint
+try:
+    from .checkpoint import load_checkpoint
+except ImportError:
+    from checkpoint import load_checkpoint
 from data import AspectBucketizer, letterbox_to_bucket
 
 
