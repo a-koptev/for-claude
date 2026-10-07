@@ -1,13 +1,4 @@
-"""
-Детектор пересечения линий перехода на одной камере.
-
-Событие возникает, когда bbox трека коснулся линии (не его край, а сам bbox). Направление
-берётся из смещения центра bbox относительно положения ДО касания (предыдущий bbox),
-поэтому два авто, едущих в разные стороны через одну линию, получают разные события.
-
-Ни куда ехать, ни что делать дальше детектор не решает: он только говорит
-"трек T пересёк линию L в сторону EXIT/ENTER (соседняя камера N)".
-"""
+"""Детектор переходов между камерами по движению и двум границам bbox."""
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
@@ -21,10 +12,10 @@ class TransitionEvent:
     camera_id: int
     line_id: int
     track_id: int
-    role: Role                      # EXIT: уезжает с camera_id в peer_camera; ENTER: приехал из peer_camera
+    role: Role
     peer_camera: int
     frame_id: int
-    motion: tuple[float, float]     # смещение центра bbox, по которому определено направление
+    motion: tuple[float, float]
 
     @property
     def from_camera(self) -> int:
@@ -36,11 +27,11 @@ class TransitionEvent:
 
 
 @dataclass
-class _Contact:
-    """Одно касание линии одним треком: от первого кадра касания до его завершения."""
-    start_center: tuple[float, float]   # положение центра перед касанием (или в первом кадре, если авто появилось на линии)
-    missed: int = 0                     # кадров подряд без касания
-    fired: bool = False                 # событие по этому касанию уже выдано
+class _CrossingState:
+    """Состояние одного track ID относительно одной линии."""
+    fired: bool = False
+    missed: int = 0
+    far_frames: int = 0
 
 
 def _center(bbox) -> tuple[float, float]:
@@ -58,21 +49,27 @@ class CrossingDetector:
             forget_frames: Optional[int] = None,
     ):
         self.camera = camera
-        self.min_move_px = Config.TRANSITION_MIN_MOVE_PX if min_move_px is None else min_move_px
-        self.release_frames = Config.TRANSITION_RELEASE_FRAMES if release_frames is None else release_frames
+        # Параметр оставлен для совместимости конструктора старого кода.
+        # Факт движения определяется по разнице центров двух последовательных bbox.
+        self.min_move_px = (
+            Config.TRANSITION_MIN_MOVE_PX if min_move_px is None else min_move_px
+        )
+        self.release_frames = (
+            Config.TRANSITION_RELEASE_FRAMES if release_frames is None else release_frames
+        )
         self.release_margin_px = (
             Config.TRANSITION_RELEASE_MARGIN_PX if release_margin_px is None else release_margin_px
         )
         self.forget_frames = Config.TRANSITION_FORGET_FRAMES if forget_frames is None else forget_frames
 
-        self._prev_center: dict[int, tuple[float, float]] = {}   # предыдущий bbox трека (его центр)
+        self._prev_center: dict[int, tuple[float, float]] = {}
+        self._prev_bbox: dict[int, object] = {}
         self._last_seen: dict[int, int] = {}
-        self._contacts: dict[tuple[int, int], _Contact] = {}     # (track_id, line_id) -> касание
-        # Треки, забытые при последнем update (по ним можно чистить внешнее состояние)
+        self._states: dict[tuple[int, int], _CrossingState] = {}
         self.dropped_tracks: list[int] = []
 
     def update(self, frame_id: int, tracks: Iterable[tuple[int, object]]) -> list[TransitionEvent]:
-        """tracks - (track_id, bbox xyxy) всех треков кадра. Возвращает новые события пересечения."""
+        """tracks - (track_id, bbox xyxy) всех треков кадра."""
         events: list[TransitionEvent] = []
         present = set()
 
@@ -81,52 +78,69 @@ class CrossingDetector:
             present.add(track_id)
             center = _center(bbox)
             prev = self._prev_center.get(track_id)
+            prev_bbox = self._prev_bbox.get(track_id)
 
-            for line in self.camera.lines:
-                event = self._update_contact(line, track_id, bbox, center, prev, frame_id)
-                if event is not None:
-                    events.append(event)
+            if prev is not None and prev_bbox is not None:
+                for line in self.camera.lines:
+                    event = self._update_crossing(line, track_id, bbox, center, prev, prev_bbox, frame_id)
+                    if event is not None:
+                        events.append(event)
 
             self._prev_center[track_id] = center
+            self._prev_bbox[track_id] = bbox
             self._last_seen[track_id] = frame_id
 
         self._release_missing(present)
         self._forget_old(frame_id)
         return events
 
-    def _update_contact(self, line: TransitionLine, track_id, bbox, center, prev, frame_id):
+    def _update_crossing(
+            self,
+            line: TransitionLine,
+            track_id: int,
+            bbox,
+            center: tuple[float, float],
+            prev: tuple[float, float],
+            prev_bbox,
+            frame_id: int,
+    ):
         key = (track_id, line.line_id)
-        contact = self._contacts.get(key)
+        state = self._states.setdefault(key, _CrossingState())
 
-        touches = line.touches(bbox)
-        if not touches:
-            if contact is not None:
-                # Касание заканчивается, только когда bbox ушёл от линии с запасом
-                # и так продержался release_frames кадров подряд
-                if self._near(line, bbox):
-                    contact.missed = 0
-                else:
-                    contact.missed += 1
-                    if contact.missed >= self.release_frames:
-                        del self._contacts[key]
+        # После события ждём, пока центр автомобиля действительно отойдёт от
+        # линии на заданное расстояние. Это не условие самого перехода, а только
+        # защита от повторных событий из-за дрожания трека около линии.
+        current_distance = abs(line.signed_distance(center))
+        if state.fired:
+            if current_distance >= self.release_margin_px:
+                state.far_frames += 1
+                if state.far_frames >= self.release_frames:
+                    state.fired = False
+                    state.far_frames = 0
+            else:
+                state.far_frames = 0
             return None
 
-        if contact is None:
-            # Первый кадр касания. Если трек появился сразу на линии, предыдущего bbox нет:
-            # направление определится по накопленному смещению в следующих кадрах
-            contact = _Contact(start_center=prev if prev is not None else center)
-            self._contacts[key] = contact
-        contact.missed = 0
-        if contact.fired:
+        motion = (center[0] - prev[0], center[1] - prev[1])
+        # КРИТИЧЕСКИЙ порядок: сначала отбрасываем стоящие/почти стоящие
+        # машины по величине движения. Только после этого проверяем линии.
+        move_distance = (motion[0] ** 2 + motion[1] ** 2) ** 0.5
+        if move_distance < self.min_move_px:
             return None
 
-        motion = (center[0] - contact.start_center[0], center[1] - contact.start_center[1])
-        if (motion[0] ** 2 + motion[1] ** 2) ** 0.5 < self.min_move_px:
-            return None
+        # Второй фильтр: движение должно быть достаточно поперёк линии.
         if line.alignment(motion) < MIN_MOTION_ALIGNMENT:
-            return None   # едет вдоль линии: ждём, пока направление станет ясным
+            return None
 
-        contact.fired = True
+        # Переход фиксируем, когда линия находится между двумя границами bbox
+        # при движении. Центр отдельно не используется: у края кадра bbox
+        # может уменьшаться, и его центр способен не пересечь линию.
+        if not line.bbox_straddles_line(bbox, motion):
+            return None
+
+        state.fired = True
+        state.far_frames = 0
+
         return TransitionEvent(
             camera_id=line.camera_id,
             line_id=line.line_id,
@@ -137,19 +151,14 @@ class CrossingDetector:
             motion=motion,
         )
 
-    def _near(self, line: TransitionLine, bbox) -> bool:
-        m = self.release_margin_px
-        x1, y1, x2, y2 = bbox
-        return line.touches((x1 - m, y1 - m, x2 + m, y2 + m))
-
     def _release_missing(self, present: set) -> None:
-        """Треки, которых нет в кадре, тоже 'не касаются' линии."""
-        for (track_id, line_id), contact in list(self._contacts.items()):
-            if track_id in present:
-                continue
-            contact.missed += 1
-            if contact.missed >= self.release_frames:
-                del self._contacts[(track_id, line_id)]
+        for (track_id, line_id), state in list(self._states.items()):
+            if track_id not in present:
+                state.missed += 1
+                if state.missed >= self.release_frames:
+                    del self._states[(track_id, line_id)]
+            else:
+                state.missed = 0
 
     def _forget_old(self, frame_id: int) -> None:
         self.dropped_tracks = [
@@ -159,5 +168,6 @@ class CrossingDetector:
         for track_id in self.dropped_tracks:
             self._last_seen.pop(track_id, None)
             self._prev_center.pop(track_id, None)
-            for key in [k for k in self._contacts if k[0] == track_id]:
-                del self._contacts[key]
+            self._prev_bbox.pop(track_id, None)
+            for key in [k for k in self._states if k[0] == track_id]:
+                del self._states[key]

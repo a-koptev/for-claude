@@ -3,6 +3,7 @@ import pytest
 
 from Config import Config
 from TopologyModule.CameraNetwork import CameraNetwork, RouteSegment, TopologyError
+from TopologyModule.CrossingDetector import CrossingDetector
 from TopologyModule.TransitionLine import Direction, Role, TransitionLine, segment_intersects_box
 
 
@@ -42,7 +43,14 @@ def test_shipped_template_has_nine_cameras():
     network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
 
     assert network.camera_ids == [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    assert network.transitions == frozenset()
+    assert network.transitions == frozenset({
+        (1, 4), (4, 1), (1, 9), (9, 1),
+        (2, 4), (4, 2), (2, 9), (9, 2),
+        (3, 4), (4, 3), (3, 9), (9, 3),
+        (4, 5), (5, 4), (5, 6), (6, 5),
+        (6, 7), (7, 6), (7, 8), (8, 7),
+        (8, 9), (9, 8),
+    })
     assert all(network.camera(i).frame_size == (1280, 720) for i in network.camera_ids)
 
 
@@ -125,6 +133,74 @@ def test_vertical_line_with_left_right():
 ])
 def test_touches(bbox, expected):
     assert line().touches(bbox) is expected
+
+
+def test_center_crosses_only_when_center_changes_side():
+    transition_line = line()
+
+    assert transition_line.center_crosses((500, 590), (500, 610))
+    assert transition_line.center_crosses((500, 610), (500, 590))
+    assert not transition_line.center_crosses((500, 590), (500, 595))
+
+
+def test_center_crossing_does_not_depend_on_bbox_size():
+    transition_line = line()
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1,
+        release_margin_px=10,
+    )
+
+    # Большой bbox уже касается линии верхней границей, но его центр ещё выше.
+    # Переход не должен фиксироваться.
+    assert detector.update(0, [(10, (400, 500, 800, 590))]) == []
+
+    # Теперь центр действительно оказался ниже линии -> фиксируем переход.
+    events = detector.update(1, [(10, (400, 610, 800, 700))])
+    assert len(events) == 1
+    assert events[0].from_camera == 1
+    assert events[0].to_camera == 5
+    assert events[0].role is Role.EXIT
+
+
+
+def test_stationary_or_jittering_track_never_triggers_transition():
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1, release_margin_px=10, min_move_px=2,
+    )
+    assert detector.update(0, [(10, (400, 500, 800, 620))]) == []
+    assert detector.update(1, [(10, (400, 501, 800, 621))]) == []
+    assert detector.update(2, [(10, (400, 500, 800, 620))]) == []
+
+
+def test_movement_filter_runs_before_bbox_line_check():
+    detector = CrossingDetector(
+        CameraNetwork.from_dict(make_config()).camera(1),
+        release_frames=1, release_margin_px=10, min_move_px=5,
+    )
+    assert detector.update(0, [(10, (400, 550, 800, 650))]) == []
+    assert detector.update(1, [(10, (400, 553, 800, 653))]) == []
+
+def test_bbox_straddles_line_uses_two_edges_and_motion():
+    transition_line = line()
+    assert transition_line.bbox_straddles_line((400, 550, 800, 650), (0, 20))
+    assert not transition_line.bbox_straddles_line((400, 400, 800, 590), (0, 20))
+    assert not transition_line.bbox_straddles_line((400, 610, 800, 710), (0, 20))
+    assert transition_line.bbox_straddles_line((400, 550, 800, 650), (0, -20))
+
+
+def test_detector_uses_bbox_edges_not_center():
+    detector = CrossingDetector(CameraNetwork.from_dict(make_config()).camera(1), release_frames=1, release_margin_px=10)
+    # Центр остаётся выше линии, но bbox пересёк её двумя границами.
+    assert detector.update(0, [(10, (400, 500, 800, 590))]) == []
+    events = detector.update(1, [(10, (400, 500, 800, 620))])
+    assert len(events) == 1
+    assert events[0].to_camera == 5
+
+
+# Старые тесты позднего детектирования удалены: переход теперь определяется
+# положением обеих границ bbox относительно линии.
 
 
 def test_segment_intersects_box_diagonal():
