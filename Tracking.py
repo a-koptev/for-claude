@@ -9,7 +9,7 @@ from TopologyModule.CameraNetwork import CameraNetwork
 from TopologyModule.CrossingDetector import CrossingDetector
 from TrackletModule.Tracklet import TrackletState
 from TrackletModule.TrackletManager import TrackletManager
-from PlateOCRModule import PlateOCRTracker, PlateReading, levenshtein_similarity
+from PlateOCRModule import PlateOCRTracker, PlateReading
 
 VIDEO_PATH = "../step_1/test_videos/1/side.ts"
 OUTPUT_PATH = "5009.mp4"
