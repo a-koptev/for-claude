@@ -2,6 +2,9 @@ from collections import Counter
 
 import cv2
 import numpy as np
+import time
+
+from RealtimeFrameSource import RealtimeFrameSource
 from ultralytics import YOLO
 
 from Config import Config
@@ -17,7 +20,7 @@ CAMERA_ID = 1
 TRANSITION_LOG_PATH = "transitions.log"
 
 model = YOLO(Config.YOLO_CAR_MODEL_PATH)
-cap = cv2.VideoCapture(VIDEO_PATH)
+frame_source = RealtimeFrameSource(VIDEO_PATH)
 
 SHOW_VIDEO = True          # True - показывать на экране, False - только запись в файл
 USE_TRACKLET_MANAGER = False  # False - текущий тест без Re-ID, только BoT-SORT + topology
@@ -116,7 +119,7 @@ track_routes: dict[int, list[int]] = {}
 if not SHOW_VIDEO:
     output_size = (1280, 720)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    fps = 10
+    fps = frame_source.source_fps or 25.0
     out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, output_size)
 
     print(f"Запись видео в файл: {OUTPUT_PATH}")
@@ -131,15 +134,19 @@ if USE_TRACKLET_MANAGER:
     )
     traclet_manager.update_searched_vehicle(["22"])
 
-frame_id = 0
-frame_counter_for_fps = 0
+frame_source.start()
+processed_frames = 0
+last_perf_log = time.monotonic()
 
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+    packet = frame_source.get_latest(timeout=1.0)
+    if packet is None:
+        if frame_source.ended:
+            break
+        continue
 
-    frame = cv2.resize(frame, (1280, 720))
+    frame_id = packet.frame_id
+    frame = cv2.resize(packet.frame, (1280, 720))
 
     # ВАЖНО: YOLO получает чистый кадр. Линии перехода рисуются только на
     # отдельной копии для отображения, чтобы красные линии не влияли на детектор.
@@ -193,7 +200,11 @@ while True:
         else:
             out.write(display_frame)
 
-        frame_id += 1
+        processed_frames += 1
+        frame_source.record_processed(packet)
+        if time.monotonic() - last_perf_log >= 1.0:
+            print(frame_source.performance_line())
+            last_perf_log = time.monotonic()
         if cv2.waitKey(1) == 27:
             break
         continue
@@ -324,17 +335,22 @@ while True:
     else:
         out.write(display_frame)
 
+    processed_frames += 1
+    frame_source.record_processed(packet)
+    if time.monotonic() - last_perf_log >= 1.0:
+        print(frame_source.performance_line())
+        last_perf_log = time.monotonic()
+
     if SHOW_VIDEO and cv2.waitKey(1) == 27:
         break
 
-    frame_id += 1
-
-cap.release()
+frame_source.stop()
 transition_log.close()
 
 if not SHOW_VIDEO:
     out.release()
     print(f"Видео сохранено в: {OUTPUT_PATH}")
-    print(f"Обработано кадров: {frame_id}")
+    print(f"Обработано кадров: {processed_frames}")
+    print(frame_source.performance_line())
 
 cv2.destroyAllWindows()
