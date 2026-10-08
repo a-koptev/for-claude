@@ -175,8 +175,7 @@ while True:
                 f"route={route}"
             )
             print(message)
-            transition_log.write(message + "
-")
+            transition_log.write(message + "\n")
             transition_log.flush()
 
         if USE_TRACKLET_MANAGER:
@@ -229,8 +228,7 @@ while True:
             f"route={route}"
         )
         print(message)
-        transition_log.write(message + "
-")
+        transition_log.write(message + "\n")
         transition_log.flush()
 
     # OCR only for moving vehicles. The vehicle bbox comes directly from
