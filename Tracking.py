@@ -4,7 +4,6 @@ import cv2
 import numpy as np
 import time
 
-from RealtimeFrameSource import RealtimeFrameSource
 from ultralytics import YOLO
 
 from Config import Config
@@ -20,7 +19,10 @@ CAMERA_ID = 1
 TRANSITION_LOG_PATH = "transitions.log"
 
 model = YOLO(Config.YOLO_CAR_MODEL_PATH)
-frame_source = RealtimeFrameSource(VIDEO_PATH)
+cap = cv2.VideoCapture(VIDEO_PATH)
+if not cap.isOpened():
+    raise RuntimeError(f"Не удалось открыть источник видео: {VIDEO_PATH}")
+source_fps = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
 
 SHOW_VIDEO = True          # True - показывать на экране, False - только запись в файл
 USE_TRACKLET_MANAGER = False  # False - текущий тест без Re-ID, только BoT-SORT + topology
@@ -119,7 +121,7 @@ track_routes: dict[int, list[int]] = {}
 if not SHOW_VIDEO:
     output_size = (1280, 720)
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    fps = frame_source.source_fps or 25.0
+    fps = source_fps or 25.0
     out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, output_size)
 
     print(f"Запись видео в файл: {OUTPUT_PATH}")
@@ -134,19 +136,17 @@ if USE_TRACKLET_MANAGER:
     )
     traclet_manager.update_searched_vehicle(["22"])
 
-frame_source.start()
 processed_frames = 0
+frame_id = 0
 last_perf_log = time.monotonic()
+processing_started = time.monotonic()
 
 while True:
-    packet = frame_source.get_latest(timeout=1.0)
-    if packet is None:
-        if frame_source.ended:
-            break
-        continue
+    ret, raw_frame = cap.read()
+    if not ret:
+        break
 
-    frame_id = packet.frame_id
-    frame = cv2.resize(packet.frame, (1280, 720))
+    frame = cv2.resize(raw_frame, (1280, 720))
 
     # ВАЖНО: YOLO получает чистый кадр. Линии перехода рисуются только на
     # отдельной копии для отображения, чтобы красные линии не влияли на детектор.
@@ -201,9 +201,10 @@ while True:
             out.write(display_frame)
 
         processed_frames += 1
-        frame_source.record_processed(packet)
         if time.monotonic() - last_perf_log >= 1.0:
-            print(frame_source.performance_line())
+            elapsed = time.monotonic() - processing_started
+        fps_now = processed_frames / elapsed if elapsed > 0 else 0.0
+        print(f"[PERF] processing={fps_now:.1f} FPS processed={processed_frames}")
             last_perf_log = time.monotonic()
         if cv2.waitKey(1) == 27:
             break
@@ -336,7 +337,6 @@ while True:
         out.write(display_frame)
 
     processed_frames += 1
-    frame_source.record_processed(packet)
     if time.monotonic() - last_perf_log >= 1.0:
         print(frame_source.performance_line())
         last_perf_log = time.monotonic()
@@ -344,7 +344,7 @@ while True:
     if SHOW_VIDEO and cv2.waitKey(1) == 27:
         break
 
-frame_source.stop()
+cap.release()
 transition_log.close()
 
 if not SHOW_VIDEO:
