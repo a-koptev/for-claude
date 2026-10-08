@@ -4,7 +4,7 @@ from typing import Iterable, Optional
 
 from Config import Config
 from TopologyModule.CameraNetwork import Camera
-from TopologyModule.TransitionLine import MIN_MOTION_ALIGNMENT, Role, TransitionLine
+from TopologyModule.TransitionLine import Role, TransitionLine
 
 
 @dataclass(frozen=True)
@@ -139,7 +139,7 @@ class CrossingDetector:
         # Нельзя сначала требовать большой сдвиг центра или высокий alignment:
         # при медленном движении центр может почти не измениться, хотя bbox уже
         # физически пересёк линию. Именно это приводило к пропуску перехода.
-        if not line.bbox_straddles_line(bbox, motion):
+        if not line.bbox_crosses_between(prev_bbox, bbox, motion):
             return None
 
         # Направление всё равно обязательно. Берём именно компонент движения
