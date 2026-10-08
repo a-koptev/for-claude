@@ -52,7 +52,10 @@ class Config:
     OCR_PLATE_IMGSZ = int(os.getenv("PARKING_PLATE_IMGSZ", "640"))
     OCR_DEVICE = os.getenv("PARKING_OCR_DEVICE", "auto")
     OCR_BATCH_SIZE = int(os.getenv("PARKING_OCR_BATCH_SIZE", "32"))
-    # OCR readings below this confidence are ignored completely.\n    OCR_MIN_CHAR_CONFIDENCE = float(os.getenv("PARKING_OCR_MIN_CHAR_CONFIDENCE", "0.70"))\n    # Similarity threshold used only for grouping/debugging OCR variants.\n    OCR_LEVENSHTEIN_SIM_THRESHOLD = float(os.getenv("PARKING_OCR_LEVENSHTEIN_SIM_THRESHOLD", "0.80"))
+    # OCR readings below this confidence are ignored completely.
+    OCR_MIN_CHAR_CONFIDENCE = float(os.getenv("PARKING_OCR_MIN_CHAR_CONFIDENCE", "0.70"))
+    # Similarity threshold used only for grouping/debugging OCR variants.
+    OCR_LEVENSHTEIN_SIM_THRESHOLD = float(os.getenv("PARKING_OCR_LEVENSHTEIN_SIM_THRESHOLD", "0.80"))
 
     TRACKER_MOVEMENT_ALFA = 0.2
     TRACKER_MOVEMENT_MIN_SIZE = 30
