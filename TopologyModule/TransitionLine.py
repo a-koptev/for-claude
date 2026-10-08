@@ -136,12 +136,11 @@ class TransitionLine:
 
     def bbox_crosses_between(self, previous_bbox, current_bbox, motion: tuple[float, float]) -> bool:
         """
-        Проверяет переход bbox через линию между двумя последовательными кадрами.
+        Проверяет реальный переход объекта через линию между двумя кадрами.
 
-        Важный случай: маленький/далёкий автомобиль может за один кадр оказаться
-        целиком с одной стороны линии, а на следующем — целиком с другой. Тогда
-        ни previous_bbox, ни current_bbox по отдельности не straddle-ят линию,
-        поэтому проверяем смену сторон всего bbox.
+        Сам факт того, что текущий bbox пересекает линию, НЕ является событием:
+        стоящий автомобиль может долго находиться на линии. Событие возникает
+        только если объект действительно переместился через линию.
         """
         if self.length == 0:
             return False
@@ -155,6 +154,31 @@ class TransitionLine:
         if abs(motion_projection) < 1e-9:
             return False
 
+        # Движение должно быть преимущественно поперёк линии. Это отсекает
+        # дрожание трека и движение вдоль самой линии.
+        motion_length = (motion[0] ** 2 + motion[1] ** 2) ** 0.5
+        if motion_length == 0:
+            return False
+        if abs(motion_projection) / motion_length < MIN_MOTION_ALIGNMENT:
+            return False
+
+        previous_center = (
+            sum(corner[0] for corner in self._bbox_corners(previous_bbox)) / 4.0,
+            sum(corner[1] for corner in self._bbox_corners(previous_bbox)) / 4.0,
+        )
+        current_center = (
+            sum(corner[0] for corner in self._bbox_corners(current_bbox)) / 4.0,
+            sum(corner[1] for corner in self._bbox_corners(current_bbox)) / 4.0,
+        )
+
+        # Основной и самый надёжный вариант: центр автомобиля реально пересёк
+        # конечный отрезок линии между двумя кадрами.
+        if self.center_crosses(previous_center, current_center):
+            return True
+
+        # Дополнительный вариант для маленького/далёкого автомобиля:
+        # он может за один кадр полностью перескочить через линию, поэтому
+        # центр тоже окажется по другую сторону. Проверяем полный переход bbox.
         previous_corners = self._bbox_corners(previous_bbox)
         current_corners = self._bbox_corners(current_bbox)
 
@@ -166,13 +190,6 @@ class TransitionLine:
         current_min = min(current_signed)
         current_max = max(current_signed)
 
-        # Обычный случай: bbox уже пересекает линию в текущем кадре.
-        if self._bbox_intersects_line_segment(current_bbox):
-            if current_min <= 0.0 <= current_max:
-                return True
-
-        # Ключевой случай: весь bbox был по одну сторону, затем целиком
-        # оказался по другую. Это означает, что bbox пересёк линию между кадрами.
         crossed_sides = (
             previous_max < 0.0 and current_min > 0.0
         ) or (
@@ -181,8 +198,8 @@ class TransitionLine:
         if not crossed_sides:
             return False
 
-        # Проверяем, что область bbox в этих двух кадрах находится напротив
-        # конечного отрезка линии, а не только напротив его продолжения.
+        # Не разрешаем пересечение бесконечного продолжения линии далеко за
+        # пределами заданного отрезка.
         return (
             self._bbox_intersects_line_segment(previous_bbox)
             or self._bbox_intersects_line_segment(current_bbox)
