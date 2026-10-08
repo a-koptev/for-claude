@@ -206,3 +206,107 @@ ocr_plate_number_soft/best_ocr.pt
 5. хранить session/plate/confidence/embeddings/events в PostgreSQL + pgvector;
 6. сделать динамическую Re-ID gallery, пополняемую только надёжными связями;
 7. предусмотреть перепривязку глобального ID, а не жёсткую фиксацию ID за автомобилем.
+
+
+# Realtime architecture — обязательное требование
+
+Realtime является обязательным требованием итоговой системы. Tracking.py не должен искусственно замедляться до FPS исходного видео через sleep() или cv2.waitKey(1000 / FPS). Это было бы неверно для реальной камеры/RTSP.
+
+## Главный принцип
+
+При перегрузке система не должна накапливать старые кадры и уходить всё дальше в прошлое. Нужно обрабатывать максимально свежий кадр, а устаревшие промежуточные кадры отбрасывать.
+
+Целевая схема:
+
+```text
+CAMERA / RTSP
+      ↓
+capture worker
+      ↓
+bounded latest-frame buffer (предпочтительно size=1)
+      ↓
+YOLO + BoT-SORT tracking
+      ↓
+tracking state
+   ↙       ↘
+ ReID      OCR
+             ↓
+       plate YOLO → OCR
+```
+
+Если камера выдаёт 30 FPS (примерно один кадр каждые 33 ms), а обработка занимает 90 ms на кадр, последовательная обработка всех кадров физически даёт около 11 FPS. Нельзя в таком случае бесконечно складывать кадры в очередь: latency будет расти. Правильное поведение — пропускать устаревшие кадры и продолжать с актуальным состоянием камеры.
+
+## OCR/Re-ID не должны блокировать realtime tracking
+
+Тяжёлые операции должны выполняться с контролируемой частотой или асинхронно:
+
+- YOLO/BoT-SORT — на каждом доступном актуальном кадре, насколько позволяет производительность;
+- Re-ID — каждые N кадров или по событию;
+- plate detector — с контролируемой периодичностью / trigger;
+- OCR — только после хорошего обнаружения номера.
+
+Главный tracking loop не должен ждать бесконечную очередь OCR/Re-ID.
+
+## Метрики производительности
+
+Нужно измерять:
+
+- source/arrival FPS;
+- processing FPS;
+- latency;
+- время GPU inference;
+- количество dropped frames.
+
+Пример:
+
+```text
+[PERF] source=30.0 FPS processing=28.4 FPS latency=31 ms dropped=12
+```
+
+При перегрузке должно быть видно, например:
+
+```text
+[PERF] source=30 FPS processing=12 FPS latency=450 ms
+```
+
+CAP_PROP_FPS можно использовать для диагностики/метаданных, но нельзя использовать как throttle. Для live stream полезнее измерять реальное время поступления кадров через performance timestamps.
+
+## Последствие drop frames для движения
+
+Текущий CrossingDetector считает движение между обработанными кадрами:
+
+```text
+dx = current_center.x - previous_center.x
+dy = current_center.y - previous_center.y
+```
+
+и использует TRANSITION_MIN_MOVE_PX = 2.0. После перехода на latest-frame/drop-frame архитектуру одинаковое количество пикселей между двумя обработанными кадрами может соответствовать разному времени. Поэтому следующим этапом после стабилизации realtime capture нужно перевести движение на timestamp-aware модель:
+
+```text
+dx / dt
+dy / dt
+или pixels/sec
+```
+
+То же касается текущих frame-based параметров:
+
+- OCR_EVERY_N_FRAMES = 5;
+- TRANSITION_RELEASE_FRAMES = 5;
+- TRANSITION_FORGET_FRAMES = 150.
+
+В дальнейшем их желательно заменить на интервалы в секундах / timestamp scheduling.
+
+**Важно:** не менять эти параметры вслепую до внедрения realtime capture и измерения фактической производительности.
+
+## Следующий технический этап
+
+При реализации realtime:
+
+1. добавить отдельный capture worker/thread;
+2. сделать bounded latest-frame buffer;
+3. брать самый свежий кадр;
+4. отбрасывать stale frames;
+5. не добавлять sleep()/FPS throttle;
+6. сохранить текущие YOLO + BoT-SORT + topology + OCR;
+7. добавить performance metrics;
+8. после стабилизации перейти на timestamp-based movement/cadence.
