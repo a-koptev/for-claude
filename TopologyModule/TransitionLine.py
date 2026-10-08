@@ -107,42 +107,58 @@ class TransitionLine:
             bbox,
             motion: tuple[float, float],
     ) -> bool:
-        """True, если линия находится между двумя границами bbox по движению."""
+        """True, если текущий bbox пересекает линию и движение идёт через неё.
+
+        Для горизонтальной линии это означает буквально то, что требуется для
+        перехода: верхняя и нижняя границы bbox находятся по разные стороны
+        линии. Для произвольной линии используется проекция четырёх углов bbox
+        на нормаль линии — это эквивалентная проверка "линия проходит через bbox".
+
+        Направление движения проверяется отдельно в CrossingDetector через
+        role_of_motion(); здесь motion нужен только для того, чтобы выбрать
+        направление поперёк линии и не считать движение вдоль неё пересечением.
+        """
         x1, y1, x2, y2 = (float(v) for v in bbox)
-        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+        if x2 < x1:
+            x1, x2 = x2, x1
+        if y2 < y1:
+            y1, y2 = y2, y1
+
+        if self.length == 0:
+            return False
+
         nx, ny = self.normal
-        length = self.length
-        if length == 0:
-            return False
-        nx /= length
-        ny /= length
+        normal_length = self.length
+        nx /= normal_length
+        ny /= normal_length
 
-        projection = motion[0] * nx + motion[1] * ny
-        if abs(projection) < 1e-9:
+        # Должно быть реальное движение поперёк линии. Само направление
+        # (EXIT/ENTER) определяется выше в CrossingDetector.
+        motion_projection = motion[0] * nx + motion[1] * ny
+        if abs(motion_projection) < 1e-9:
             return False
 
-        # Проверяем не бесконечную прямую, а сам конечный отрезок линии.
-        # Проекция bbox на направление линии должна пересекаться с отрезком
-        # (с небольшим допуском за его концы).
+        # Не считаем пересечение продолжения линии за её концами.
         tx, ty = -ny, nx
-        center_along = (cx - self.p1[0]) * tx + (cy - self.p1[1]) * ty
-        half_along = (
-            abs(tx) * abs(x2 - x1) + abs(ty) * abs(y2 - y1)
-        ) / 2.0
+        corners = (
+            (x1, y1),
+            (x2, y1),
+            (x2, y2),
+            (x1, y2),
+        )
+        along = [
+            (px - self.p1[0]) * tx + (py - self.p1[1]) * ty
+            for px, py in corners
+        ]
         tolerance = LINE_ENDPOINT_TOLERANCE_PX
-        if center_along + half_along < -tolerance:
-            return False
-        if center_along - half_along > length + tolerance:
+        if max(along) < -tolerance or min(along) > self.length + tolerance:
             return False
 
-        half_projection = (
-            abs(nx) * abs(x2 - x1) + abs(ny) * abs(y2 - y1)
-        ) / 2.0
-        center_distance = self.signed_distance((cx, cy))
-        sign = 1.0 if projection > 0 else -1.0
-        rear = center_distance - sign * half_projection
-        front = center_distance + sign * half_projection
-        return rear <= 0 <= front or front <= 0 <= rear
+        # Ключевая проверка: bbox должен находиться одновременно по обе стороны
+        # линии. Для горизонтальной линии это ровно "верх уже за линией,
+        # низ ещё перед ней" (или наоборот при обратном движении).
+        signed = [self.signed_distance(corner) for corner in corners]
+        return min(signed) <= 0.0 <= max(signed)
 
     def center_crosses(
             self,
