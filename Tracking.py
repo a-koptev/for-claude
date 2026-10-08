@@ -1,3 +1,5 @@
+from collections import Counter
+
 import cv2
 import numpy as np
 from ultralytics import YOLO
@@ -35,7 +37,12 @@ plate_ocr = PlateOCRTracker(
     ocr_device=Config.OCR_DEVICE,
     ocr_batch_size=Config.OCR_BATCH_SIZE,
 )
-ocr_cache: dict[int, PlateReading] = {}\n# Все принятые OCR-результаты по локальному track ID.\n# Нужны для отладки стабильности распознавания и анализа ошибок.\nocr_history: dict[int, Counter[str]] = {}\nocr_last_text: dict[int, str] = {}\nocr_similarity_cache: dict[int, float | None] = {}
+ocr_cache: dict[int, PlateReading] = {}
+# Все принятые OCR-результаты по локальному track ID.
+# Нужны для отладки стабильности распознавания и анализа ошибок.
+ocr_history: dict[int, Counter[str]] = {}
+ocr_last_text: dict[int, str] = {}
+ocr_similarity_cache: dict[int, float | None] = {}
 
 
 def draw_plate_label(image, box, track_id, reading):
@@ -152,6 +159,7 @@ while True:
 
     if r.boxes is None or r.boxes.id is None:
         ocr_cache.clear()
+        ocr_history.clear()
         events = crossing_detector.update(frame_id, [])
 
         for event in events:
@@ -167,7 +175,8 @@ while True:
                 f"route={route}"
             )
             print(message)
-            transition_log.write(message + "\n")
+            transition_log.write(message + "
+")
             transition_log.flush()
 
         if USE_TRACKLET_MANAGER:
@@ -199,6 +208,9 @@ while True:
     for cached_track_id in list(ocr_cache):
         if cached_track_id not in present_track_ids:
             del ocr_cache[cached_track_id]
+    for history_track_id in list(ocr_history):
+        if history_track_id not in present_track_ids:
+            del ocr_history[history_track_id]
 
     events = crossing_detector.update(
         frame_id,
@@ -217,7 +229,8 @@ while True:
             f"route={route}"
         )
         print(message)
-        transition_log.write(message + "\n")
+        transition_log.write(message + "
+")
         transition_log.flush()
 
     # OCR only for moving vehicles. The vehicle bbox comes directly from
@@ -231,8 +244,22 @@ while True:
         if moving_tracks:
             readings = plate_ocr.recognize(tracking_frame, moving_tracks)
             for track_id, reading in readings.items():
-                if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
-                    ocr_cache[track_id] = reading
+                # Accept OCR only when character confidence is high enough.
+                if reading.ocr_confidence < Config.OCR_MIN_CHAR_CONFIDENCE:
+                    continue
+
+                ocr_cache[track_id] = reading
+
+                history = ocr_history.setdefault(track_id, Counter())
+                history[reading.text] += 1
+
+                print(
+                    f"[OCR] track={track_id} "
+                    f"plate={reading.text} "
+                    f"conf={reading.ocr_confidence:.2f} "
+                    f"count={history[reading.text]} "
+                    f"history={dict(history)}"
+                )
 
     if USE_TRACKLET_MANAGER:
         traclet_manager.update(
