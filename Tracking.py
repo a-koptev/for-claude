@@ -2,7 +2,6 @@ from collections import Counter
 
 import cv2
 import numpy as np
-import time
 
 from ultralytics import YOLO
 
@@ -67,6 +66,7 @@ def draw_plate_label(image, box, track_id, reading):
     bg_y2 = min(image.shape[0] - 1, text_y + baseline + 5)
     cv2.rectangle(image, (bg_x1, bg_y1), (bg_x2, bg_y2), (0, 0, 0), -1)
     cv2.putText(image, label, (x1 + 5, text_y), font, scale, (0, 255, 255), thickness, cv2.LINE_AA)
+
 
 def draw_transition_lines(image):
     """Рисует линии переходов текущей камеры и стрелки направления EXIT."""
@@ -138,8 +138,6 @@ if USE_TRACKLET_MANAGER:
 
 processed_frames = 0
 frame_id = 0
-last_perf_log = time.monotonic()
-processing_started = time.monotonic()
 
 while True:
     ret, raw_frame = cap.read()
@@ -201,11 +199,8 @@ while True:
             out.write(display_frame)
 
         processed_frames += 1
-        if time.monotonic() - last_perf_log >= 1.0:
-            elapsed = time.monotonic() - processing_started
-            fps_now = processed_frames / elapsed if elapsed > 0 else 0.0
-            print(f"[PERF] processing={fps_now:.1f} FPS processed={processed_frames}")
-            last_perf_log = time.monotonic()
+        frame_id += 1
+
         if cv2.waitKey(1) == 27:
             break
         continue
@@ -337,9 +332,7 @@ while True:
         out.write(display_frame)
 
     processed_frames += 1
-    if time.monotonic() - last_perf_log >= 1.0:
-        print(frame_source.performance_line())
-        last_perf_log = time.monotonic()
+    frame_id += 1
 
     if SHOW_VIDEO and cv2.waitKey(1) == 27:
         break
@@ -351,6 +344,5 @@ if not SHOW_VIDEO:
     out.release()
     print(f"Видео сохранено в: {OUTPUT_PATH}")
     print(f"Обработано кадров: {processed_frames}")
-    print(frame_source.performance_line())
 
 cv2.destroyAllWindows()
