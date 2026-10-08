@@ -7,7 +7,7 @@ from TopologyModule.CameraNetwork import CameraNetwork
 from TopologyModule.CrossingDetector import CrossingDetector
 from TrackletModule.Tracklet import TrackletState
 from TrackletModule.TrackletManager import TrackletManager
-from PlateOCRModule import PlateOCRTracker, PlateReading
+from PlateOCRModule import PlateOCRTracker, PlateReading, levenshtein_similarity
 
 VIDEO_PATH = "../step_1/test_videos/1/side.ts"
 OUTPUT_PATH = "5009.mp4"
@@ -35,7 +35,7 @@ plate_ocr = PlateOCRTracker(
     ocr_device=Config.OCR_DEVICE,
     ocr_batch_size=Config.OCR_BATCH_SIZE,
 )
-ocr_cache: dict[int, PlateReading] = {}
+ocr_cache: dict[int, PlateReading] = {}\n# Все принятые OCR-результаты по локальному track ID.\n# Нужны для отладки стабильности распознавания и анализа ошибок.\nocr_history: dict[int, Counter[str]] = {}\nocr_last_text: dict[int, str] = {}\nocr_similarity_cache: dict[int, float | None] = {}
 
 
 def draw_plate_label(image, box, track_id, reading):
