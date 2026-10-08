@@ -203,8 +203,8 @@ while True:
         processed_frames += 1
         if time.monotonic() - last_perf_log >= 1.0:
             elapsed = time.monotonic() - processing_started
-        fps_now = processed_frames / elapsed if elapsed > 0 else 0.0
-        print(f"[PERF] processing={fps_now:.1f} FPS processed={processed_frames}")
+            fps_now = processed_frames / elapsed if elapsed > 0 else 0.0
+            print(f"[PERF] processing={fps_now:.1f} FPS processed={processed_frames}")
             last_perf_log = time.monotonic()
         if cv2.waitKey(1) == 27:
             break
