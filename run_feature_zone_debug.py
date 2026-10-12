@@ -170,8 +170,15 @@ class Debugger:
                               self.barriers_cfg["camera_1"][self.selected_barrier])
 
     def save_config(self):
+        cameras_cfg = self.zones_cfg.setdefault("cameras", {})
         cam_key = str(CAMERA_ID)
-        self.zones_cfg.setdefault("cameras", {}).setdefault(cam_key, {})
+        # YAML may parse unquoted camera IDs as integers. Normalize this key before saving,
+        # otherwise both 1 and "1" could coexist and the old polygon might win on reload.
+        integer_entry = cameras_cfg.pop(CAMERA_ID, {}) if CAMERA_ID in cameras_cfg else {}
+        string_entry = cameras_cfg.get(cam_key, {}) or {}
+        merged_entry = dict(integer_entry or {})
+        merged_entry.update(string_entry)
+        cameras_cfg[cam_key] = merged_entry
         self.zones_cfg["cameras"][cam_key][self.profile] = self.pending_points.copy() \
             if self.edit_polygon and self.pending_points else self.profile_points()
         # If not actively drawing, preserve the last stored polygon.
