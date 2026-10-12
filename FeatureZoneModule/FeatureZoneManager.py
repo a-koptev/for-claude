@@ -41,21 +41,26 @@ class FeatureZoneManager:
         self,
         features_manager,
         config_path: str | Path = "feature_zones.yaml",
-        similarity_threshold: float = 0.90,
-        sample_every_n_frames: int = 3,
-        min_crop_size: int = 8,
+        similarity_threshold: float | None = None,
+        sample_every_n_frames: int | None = None,
+        min_crop_size: int | None = None,
     ):
-        if not 0.0 <= similarity_threshold <= 1.0:
-            raise ValueError("similarity_threshold must be between 0 and 1")
-        if sample_every_n_frames < 1:
-            raise ValueError("sample_every_n_frames must be >= 1")
         self.features_manager = features_manager
-        self.similarity_threshold = float(similarity_threshold)
-        self.sample_every_n_frames = int(sample_every_n_frames)
-        self.min_crop_size = int(min_crop_size)
-        self._galleries: dict[tuple[int, int], TrackGallery] = {}
         with open(config_path, "r", encoding="utf-8") as stream:
             self.config = yaml.safe_load(stream) or {}
+        threshold = self.config.get("similarity_threshold", 0.90) if similarity_threshold is None else similarity_threshold
+        interval = self.config.get("sample_every_n_frames", 3) if sample_every_n_frames is None else sample_every_n_frames
+        crop_size = self.config.get("min_crop_size", 8) if min_crop_size is None else min_crop_size
+        if not 0.0 <= threshold <= 1.0:
+            raise ValueError("similarity_threshold must be between 0 and 1")
+        if interval < 1:
+            raise ValueError("sample_every_n_frames must be >= 1")
+        if crop_size < 1:
+            raise ValueError("min_crop_size must be >= 1")
+        self.similarity_threshold = float(threshold)
+        self.sample_every_n_frames = int(interval)
+        self.min_crop_size = int(crop_size)
+        self._galleries: dict[tuple[int, int], TrackGallery] = {}
         self._polygons = self._parse_polygons(self.config.get("cameras", {}))
 
     @staticmethod
