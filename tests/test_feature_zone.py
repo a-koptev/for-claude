@@ -91,7 +91,7 @@ class FeatureZoneManagerTests(unittest.TestCase):
         self.assertEqual(manager.process_frame(1, 0, frame, [(7, [10, 10, 50, 50])]), {})
 
 
-    def test_camera_2_requires_gate_specific_profile(self):
+    def test_camera_2_selects_profile_from_zone_hit(self):
         import yaml
         config = {
             "cameras": {
@@ -108,7 +108,7 @@ class FeatureZoneManagerTests(unittest.TestCase):
         fm = FakeFeaturesManager([np.array([1., 0.]), np.array([0., 1.])])
         manager = FeatureZoneManager(fm, tmp.name, sample_every_n_frames=1)
         frame = np.ones((220, 220, 3), dtype=np.uint8)
-        # Missing gate context must not silently select a side-specific profile.
+        # The right-edge center lands in LEFT, so the zone identifies the side.
         self.assertEqual(manager.process_frame(2, 0, frame, [(7, [10, 10, 50, 50])]), {7: True})
         self.assertEqual(len(fm.batches), 1)
         gallery = manager.end_track(2, 7)
