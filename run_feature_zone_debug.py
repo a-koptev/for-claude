@@ -1,20 +1,18 @@
-"""PyCharm-friendly interactive debugger for barrier lines and Re-ID feature zones.
+"""PyCharm-friendly debugger for polygon-based Re-ID feature zones.
 
-Run this file directly (no command-line arguments). Edit the SETTINGS section below.
-No database connection or writes are performed.
+Run directly from PyCharm. No database connection or writes are performed.
 
 Mouse / keyboard:
-  e  - toggle polygon edit mode; left-click adds polygon vertices
-  b  - toggle camera-1 barrier-line edit mode
-  1  - select LEFT barrier line (camera 1) / LEFT zone profile (camera 2/3)
-  2  - select RIGHT barrier line (camera 1) / RIGHT zone profile (camera 2/3)
-  d  - select DEFAULT zone profile (camera 1, 4-9)
-  s  - save current polygon and barrier lines
-  c  - clear the currently edited polygon or selected barrier line
+  e - toggle polygon edit mode; left-click adds polygon vertices
+  1 - select LEFT zone (cameras 1 and 2)
+  2 - select RIGHT zone (cameras 1 and 2)
+  d - select DEFAULT zone (camera 3 and cameras 4-9)
+  s - save the current polygon
+  c - clear the current polygon
   space - pause/resume video
   q / Esc - quit
 
-Coordinates are in the resized 1280x720 frame, matching Tracking.py.
+Coordinates use the resized 1280x720 frame.
 """
 from __future__ import annotations
 
@@ -99,21 +97,10 @@ class Debugger:
             "cameras": {},
         })
         self.zones_cfg.setdefault("cameras", {})
-        self.barriers_cfg = load_yaml(BARRIER_LINES_PATH, {
-            "frame_size": list(FRAME_SIZE),
-            "camera_1": {"LEFT": [], "RIGHT": []},
-        })
-        self.barriers_cfg.setdefault("camera_1", {"LEFT": [], "RIGHT": []})
-        self.barriers_cfg["camera_1"].setdefault("LEFT", [])
-        self.barriers_cfg["camera_1"].setdefault("RIGHT", [])
-
-        self.profile = ENTRY_GATE.upper() if CAMERA_ID in (2, 3) else "DEFAULT"
+         self.profile = ENTRY_GATE.upper() if CAMERA_ID in (1, 2) else "DEFAULT"
         self.edit_polygon = False
-        self.edit_barriers = False
         self.paused = False
         self.pending_points: list[list[int]] = []
-        self.pending_barrier_points: list[list[int]] = []
-        self.selected_barrier = "LEFT"
         self.last_frame: np.ndarray | None = None
         self.frame_id = 0
         self.last_seen: dict[int, int] = {}
@@ -142,11 +129,11 @@ class Debugger:
         return cam.get(self.profile, []) or []
 
     def set_profile(self, profile: str):
-        if CAMERA_ID in (2, 3) and profile not in ("LEFT", "RIGHT"):
-            print("Для камер 2/3 выберите профиль L или R.")
+        if CAMERA_ID in (1, 2) and profile not in ("LEFT", "RIGHT"):
+            print("Для камер 1/2 выберите профиль LEFT или RIGHT.")
             return
-        if CAMERA_ID not in (2, 3) and profile != "DEFAULT":
-            print("Профили LEFT/RIGHT для зон признаков используются только камерами 2 и 3.")
+        if CAMERA_ID not in (1, 2) and profile != "DEFAULT":
+            print("Камеры 3-9 используют профиль DEFAULT.")
             return
         self.profile = profile
         self.pending_points.clear()
@@ -158,17 +145,7 @@ class Debugger:
         if self.edit_polygon:
             self.pending_points.append([int(x), int(y)])
             return
-        if self.edit_barriers and CAMERA_ID == 1:
-            self.pending_barrier_points.append([int(x), int(y)])
-            if len(self.pending_barrier_points) == 2:
-                self.barriers_cfg["camera_1"][self.selected_barrier] = [
-                    self.pending_barrier_points[0], self.pending_barrier_points[1]
-                ]
-                self.pending_barrier_points.clear()
-                self.log.info("BARRIER_LINE_SET side=%s points=%s",
-                              self.selected_barrier,
-                              self.barriers_cfg["camera_1"][self.selected_barrier])
-
+ 
     def save_config(self):
         cameras_cfg = self.zones_cfg.setdefault("cameras", {})
         cam_key = str(CAMERA_ID)
@@ -186,25 +163,17 @@ class Debugger:
             self.zones_cfg["cameras"][cam_key][self.profile] = self.pending_points.copy()
         with ZONES_PATH.open("w", encoding="utf-8") as stream:
             yaml.safe_dump(self.zones_cfg, stream, allow_unicode=True, sort_keys=False)
-        with BARRIER_LINES_PATH.open("w", encoding="utf-8") as stream:
-            yaml.safe_dump(self.barriers_cfg, stream, allow_unicode=True, sort_keys=False)
         print(f"Saved zones: {ZONES_PATH}")
-        print(f"Saved camera-1 barrier lines: {BARRIER_LINES_PATH}")
         if RUN_OSNET_FEATURES:
             self.zones = FeatureZoneManager(self.features, str(ZONES_PATH))
 
     def clear_current(self):
-        if self.edit_barriers and CAMERA_ID == 1:
-            self.barriers_cfg["camera_1"][self.selected_barrier] = []
-            self.pending_barrier_points.clear()
-            print(f"Cleared {self.selected_barrier} barrier line.")
-        else:
-            self.pending_points.clear()
-            cam = self.zones_cfg["cameras"].setdefault(str(CAMERA_ID), {})
-            cam[self.profile] = []
-            print(f"Cleared polygon: camera={CAMERA_ID}, profile={self.profile}")
-            if RUN_OSNET_FEATURES:
-                self.zones = FeatureZoneManager(self.features, str(ZONES_PATH))
+        self.pending_points.clear()
+        cam = self.zones_cfg["cameras"].setdefault(str(CAMERA_ID), {})
+        cam[self.profile] = []
+        print(f"Cleared polygon: camera={CAMERA_ID}, profile={self.profile}")
+        if RUN_OSNET_FEATURES:
+            self.zones = FeatureZoneManager(self.features, str(ZONES_PATH))
 
     def draw_line(self, image, p1, p2, color, label, thickness=2):
         a, b = tuple(map(int, p1)), tuple(map(int, p2))
@@ -216,17 +185,17 @@ class Debugger:
     def render(self, frame, tracks, boxes, ids, decisions, events):
         view = frame.copy()
 
-        # Camera 1 left/right barrier registration lines (separate from topology transition lines).
-        if CAMERA_ID == 1:
-            for side, color in (("LEFT", (255, 100, 0)), ("RIGHT", (0, 150, 255))):
-                points = self.barriers_cfg["camera_1"].get(side, [])
-                if len(points) == 2:
-                    self.draw_line(view, points[0], points[1], color, f"BARRIER {side}")
-            if self.pending_barrier_points:
-                p = tuple(self.pending_barrier_points[0])
-                cv2.circle(view, p, 6, (255, 255, 0), -1)
-
-        # Draw configured feature polygon and in-progress polygon.
+        # Show both zones on cameras 1/2; selected zone is highlighted.
+        camera_cfg = self.zones_cfg.get("cameras", {}).get(
+            str(CAMERA_ID), self.zones_cfg.get("cameras", {}).get(CAMERA_ID, {})
+        ) or {}
+        if not self.edit_polygon and CAMERA_ID in (1, 2):
+            for side, color in (("LEFT", (255, 120, 0)), ("RIGHT", (0, 150, 255))):
+                side_points = camera_cfg.get(side, []) or []
+                if len(side_points) >= 3:
+                    pts = np.asarray(side_points, dtype=np.int32).reshape((-1, 1, 2))
+                    cv2.polylines(view, [pts], True, color, 3 if side == self.profile else 1, cv2.LINE_AA)
+                    cv2.putText(view, side, tuple(side_points[0]), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         points = self.pending_points if self.edit_polygon else self.profile_points()
         if len(points) >= 2:
             pts = np.asarray(points, dtype=np.int32).reshape((-1, 1, 2))
@@ -251,7 +220,12 @@ class Debugger:
             cv2.rectangle(view, (x1, y1), (x2, y2), color, 2)
             cv2.putText(view, f"ID {track_id}", (x1, max(20, y1 - 8)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            anchor = ((x1 + x2) // 2, y2)
+            if CAMERA_ID == 2:
+                anchor = (x2, (y1 + y2) // 2)
+            elif CAMERA_ID == 3:
+                anchor = ((x1 + x2) // 2, y1)
+            else:
+                anchor = ((x1 + x2) // 2, y2)
             cv2.circle(view, anchor, 5, (0, 255, 255), -1)
 
         for event in events:
@@ -259,15 +233,13 @@ class Debugger:
                         (18, 125 + 24 * (self.transitions.total() % 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 0, 255), 2)
 
-        active_mode = "POLYGON EDIT" if self.edit_polygon else (
-            f"BARRIER EDIT: {self.selected_barrier}" if self.edit_barriers else "VIEW / FEATURE TEST"
-        )
-        gate_text = f"entry_gate={self.profile}" if CAMERA_ID in (2, 3) else "gate lines are editable on camera 1"
+        active_mode = "POLYGON EDIT" if self.edit_polygon else "VIEW / FEATURE TEST"
+        gate_text = f"selected zone={self.profile}" if CAMERA_ID in (1, 2) else "single DEFAULT zone"
         lines = [
             f"Camera {CAMERA_ID} | profile={self.profile} | frame={self.frame_id} | {active_mode}",
             gate_text,
             f"Accepted={sum(self.accepted.values())} rejected_similar={sum(self.rejected.values())}",
-            "E polygon | B barrier | 1 LEFT | 2 RIGHT | D DEFAULT | S save | C clear | SPACE pause | Q quit",
+            "E edit polygon | 1 LEFT | 2 RIGHT | D DEFAULT | S save | C clear | SPACE pause | Q quit",
         ]
         for i, text in enumerate(lines):
             cv2.putText(view, text, (12, 25 + i * 23), cv2.FONT_HERSHEY_SIMPLEX,
@@ -353,26 +325,12 @@ class Debugger:
                     self.paused = not self.paused
                 elif key == ord("e"):
                     self.edit_polygon = not self.edit_polygon
-                    self.edit_barriers = False
                     self.pending_points = self.profile_points().copy() if self.edit_polygon else []
                     print(f"Polygon edit: {self.edit_polygon}. Click vertices in order; press S to save.")
-                elif key == ord("b") and CAMERA_ID == 1:
-                    self.edit_barriers = not self.edit_barriers
-                    self.edit_polygon = False
-                    self.pending_barrier_points.clear()
-                    print(f"Barrier edit: {self.edit_barriers}. Select 1/2, then click two endpoints.")
                 elif key == ord("1"):
-                    if CAMERA_ID == 1 and self.edit_barriers:
-                        self.selected_barrier = "LEFT"
-                        self.pending_barrier_points.clear()
-                    else:
-                        self.set_profile("LEFT")
+                    self.set_profile("LEFT")
                 elif key == ord("2"):
-                    if CAMERA_ID == 1 and self.edit_barriers:
-                        self.selected_barrier = "RIGHT"
-                        self.pending_barrier_points.clear()
-                    else:
-                        self.set_profile("RIGHT")
+                    self.set_profile("RIGHT")
                 elif key == ord("d"):
                     self.set_profile("DEFAULT")
                 elif key == ord("s"):
