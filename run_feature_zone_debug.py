@@ -133,7 +133,7 @@ class Debugger:
             self.zones = FeatureZoneManager(self.features, str(ZONES_PATH))
 
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(WINDOW_NAME, 1280, 760)
+        cv2.resizeWindow(WINDOW_NAME, 1280, 720)
         cv2.setMouseCallback(WINDOW_NAME, self.on_mouse)
 
     def profile_points(self) -> list:
