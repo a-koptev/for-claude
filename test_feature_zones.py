@@ -113,16 +113,6 @@ def main():
                 tracks = []
 
             events = crossing.update(frame_id, tracks)
-            for event in events:
-                log.info("TRANSITION frame=%d track=%d role=%s line=%d %d->%d",
-                         event.frame_id, event.track_id, event.role.value, event.line_id,
-                         event.from_camera, event.to_camera)
-                if event.camera_id == args.camera_id and event.role.value == "EXIT":
-                    gallery = zones.end_track(args.camera_id, event.track_id)
-                    if gallery is not None:
-                        log.info("GALLERY_CLOSED reason=EXIT camera=%d track=%d originals=%d flips=%d",
-                                 args.camera_id, event.track_id, len(gallery["original"]), len(gallery["flipped"]))
-
             decisions = zones.process_frame(
                 camera_id=args.camera_id,
                 frame_id=frame_id,
@@ -142,6 +132,18 @@ def main():
                     rejected_total[track_id] += 1
                     log.info("FEATURE_REJECT_SIMILAR frame=%d camera=%d track=%d gallery_size=%d",
                              frame_id, args.camera_id, track_id, count)
+
+            # Process this frame before closing EXIT tracks, so an exiting track
+            # cannot accidentally start a fresh gallery on the same frame.
+            for event in events:
+                log.info("TRANSITION frame=%d track=%d role=%s line=%d %d->%d",
+                         event.frame_id, event.track_id, event.role.value, event.line_id,
+                         event.from_camera, event.to_camera)
+                if event.camera_id == args.camera_id and event.role.value == "EXIT":
+                    gallery = zones.end_track(args.camera_id, event.track_id)
+                    if gallery is not None:
+                        log.info("GALLERY_CLOSED reason=EXIT camera=%d track=%d originals=%d flips=%d",
+                                 args.camera_id, event.track_id, len(gallery["original"]), len(gallery["flipped"]))
 
             present = set(map(int, ids))
             for track_id in list(last_seen):
