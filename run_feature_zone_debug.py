@@ -41,7 +41,7 @@ from TopologyModule.CrossingDetector import CrossingDetector
 # =============================================================================
 CAMERA_ID = 1
 VIDEO_SOURCE = r"../step_1/test_videos/1/side.ts"  # video path, webcam index as string ("0"), or RTSP URL
-ENTRY_GATE = "LEFT"  # for camera 2/3: LEFT or RIGHT; persistent gate from camera 1
+ENTRY_GATE = "LEFT"  # initial zone profile for camera 1/2: LEFT or RIGHT
 FRAME_SIZE = (1280, 720)
 SAMPLE_EVERY_N_FRAMES = 3
 SIMILARITY_THRESHOLD = 0.90
@@ -52,7 +52,6 @@ WINDOW_NAME = "Barrier + ReID feature-zone debugger"
 
 ROOT = Path(__file__).resolve().parent
 ZONES_PATH = ROOT / "feature_zones.yaml"
-BARRIER_LINES_PATH = ROOT / "barrier_lines.yaml"
 LOG_PATH = ROOT / "feature_zone_debug.log"
 REPORT_PATH = ROOT / "feature_zone_debug_report.json"
 
