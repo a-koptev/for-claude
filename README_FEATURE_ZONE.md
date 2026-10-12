@@ -55,5 +55,5 @@ registration_entry_gate — persistent LEFT/RIGHT атрибут регистр�
 
 ## Проверки
 
-Запустить python -m unittest tests.test_feature_zone. Тесты используют fake extractor и не требуют
+Запустить python -m unittest discover -s tests -p test_feature_zone.py. Тесты используют fake extractor и не требуют
 весов OSNet. Нужны зависимости проекта OpenCV, NumPy и PyYAML.
