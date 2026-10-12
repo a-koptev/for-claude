@@ -252,7 +252,7 @@ class Debugger:
             raise RuntimeError(f"Cannot open video source: {source}")
         self.log.info("START camera=%d video=%s initial_zone_profile=%s db_writes=0",
                       CAMERA_ID, source, self.profile)
-        print("Debugger started. Click video to mark polygons/lines; press Q to quit.")
+        print("Debugger started. Use E to edit the selected zone polygon; press Q to quit.")
         print("Capture uses polygons and camera-specific bbox anchor points.")
         try:
             while True:
