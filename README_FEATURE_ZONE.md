@@ -57,3 +57,23 @@ registration_entry_gate — persistent LEFT/RIGHT атрибут регистр�
 
 Запустить python -m unittest discover -s tests -p test_feature_zone.py. Тесты используют fake extractor и не требуют
 весов OSNet. Нужны зависимости проекта OpenCV, NumPy и PyYAML.
+
+
+## Диагностический запуск без БД
+
+Из корня репозитория после заполнения полигонов в feature_zones.yaml:
+
+    python test_feature_zones.py --video ../step_1/test_videos/1/side.ts --camera-id 1 --show
+
+Для камеры 2 или 3 укажи сторону, которая сохранена в контексте регистрации:
+
+    python test_feature_zones.py --video path/to/video.mp4 --camera-id 2 --entry-gate LEFT --show
+
+Без --show скрипт работает без окна. Можно ограничить прогон, например, первыми 500 кадрами:
+
+    python test_feature_zones.py --video path/to/video.mp4 --camera-id 1 --max-frames 500
+
+Скрипт не подключается к БД и ничего туда не записывает. Он создаёт feature_zone_test.log
+и feature_zone_test_report.json. В логе есть FEATURE_ACCEPT, FEATURE_REJECT_SIMILAR,
+TRANSITION и GALLERY_CLOSED. Если полигон пустой, он явно предупредит, что съём отключён.
+Камера и трек визуализируются для отладки, но маски/полигоны зон пока не рисуются поверх кадра.
