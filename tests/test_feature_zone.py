@@ -31,7 +31,7 @@ class FeatureZoneManagerTests(unittest.TestCase):
             "sample_every_n_frames": interval,
             "similarity_threshold": threshold,
             "min_crop_size": 8,
-            "cameras": {"1": {"DEFAULT": points}},
+            "cameras": {"1": {"LEFT": points}},
         }
         tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", encoding="utf-8", delete=False)
         try:
@@ -109,9 +109,10 @@ class FeatureZoneManagerTests(unittest.TestCase):
         manager = FeatureZoneManager(fm, tmp.name, sample_every_n_frames=1)
         frame = np.ones((220, 220, 3), dtype=np.uint8)
         # Missing gate context must not silently select a side-specific profile.
-        self.assertEqual(manager.process_frame(2, 0, frame, [(7, [10, 10, 50, 50])]), {})
-        self.assertEqual(manager.process_frame(2, 1, frame, [(7, [10, 10, 50, 50])], entry_gate="LEFT"), {7: True})
+        self.assertEqual(manager.process_frame(2, 0, frame, [(7, [10, 10, 50, 50])]), {7: True})
         self.assertEqual(len(fm.batches), 1)
+        gallery = manager.end_track(2, 7)
+        self.assertEqual(gallery["zone_profile"], "LEFT")
 
     def test_exit_event_closes_only_matching_camera_track(self):
         from types import SimpleNamespace
@@ -143,6 +144,24 @@ class FeatureZoneManagerTests(unittest.TestCase):
         self.assertIsNone(manager.end_track(2, 7))
         self.assertIsNotNone(manager.end_track(1, 7))
         self.assertEqual(manager.active_track_keys(), ())
+
+    def test_camera_specific_anchor_points(self):
+        self.assertEqual(FeatureZoneManager.anchor(1, [10, 20, 50, 80]), (30.0, 80.0))
+        self.assertEqual(FeatureZoneManager.anchor(2, [10, 20, 50, 80]), (50.0, 50.0))
+        self.assertEqual(FeatureZoneManager.anchor(3, [10, 20, 50, 80]), (30.0, 20.0))
+        self.assertEqual(FeatureZoneManager.anchor(8, [10, 20, 50, 80]), (30.0, 80.0))
+
+    def test_track_id_switch_inside_zone_starts_new_gallery_and_is_sampled(self):
+        fm = FakeFeaturesManager([
+            np.array([1., 0.]), np.array([0., 1.]),
+            np.array([0., 1.]), np.array([1., 0.]),
+        ])
+        manager = self.make_manager(fm)
+        frame = np.ones((100, 100, 3), dtype=np.uint8)
+        self.assertEqual(manager.process_frame(1, 0, frame, [(7, [10, 10, 50, 50])]), {7: True})
+        self.assertEqual(manager.process_frame(1, 1, frame, [(19, [10, 10, 50, 50])]), {19: True})
+        self.assertIsNotNone(manager.end_track(1, 7))
+        self.assertIsNotNone(manager.end_track(1, 19))
 
 
 if __name__ == "__main__":
