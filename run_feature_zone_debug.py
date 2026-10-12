@@ -255,7 +255,7 @@ class Debugger:
         active_mode = "POLYGON EDIT" if self.edit_polygon else (
             f"BARRIER EDIT: {self.selected_barrier}" if self.edit_barriers else "VIEW / FEATURE TEST"
         )
-        gate_text = f"entry_gate={ENTRY_GATE}" if CAMERA_ID in (2, 3) else "gate lines are editable on camera 1"
+        gate_text = f"entry_gate={self.profile}" if CAMERA_ID in (2, 3) else "gate lines are editable on camera 1"
         lines = [
             f"Camera {CAMERA_ID} | profile={self.profile} | frame={self.frame_id} | {active_mode}",
             gate_text,
@@ -303,7 +303,7 @@ class Debugger:
                     if self.zones is not None:
                         decisions = self.zones.process_frame(
                             camera_id=CAMERA_ID, frame_id=self.frame_id, frame=frame,
-                            tracks=tracks, entry_gate=ENTRY_GATE if CAMERA_ID in (2, 3) else None
+                            tracks=tracks, entry_gate=self.profile if CAMERA_ID in (2, 3) else None
                         )
                         for track_id, accepted in decisions.items():
                             if accepted:
@@ -378,7 +378,7 @@ class Debugger:
             if self.zones is not None:
                 self.zones.close_all()
             report = {
-                "camera_id": CAMERA_ID, "video": source, "entry_gate": ENTRY_GATE,
+                "camera_id": CAMERA_ID, "video": source, "entry_gate": self.profile if CAMERA_ID in (2, 3) else None,
                 "frames_processed": self.frame_id,
                 "elapsed_seconds": round(time.time() - self.start_time, 2),
                 "accepted_samples": sum(self.accepted.values()),
