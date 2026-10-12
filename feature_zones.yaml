@@ -1,20 +1,20 @@
 # Coordinates use the 1280x720 frame used by Tracking.py.
-# Fill empty lists with REAL capture-zone polygon points [x, y].
-# Empty polygons disable sampling safely; topology/transition lines are not capture zones.
-# Cameras 2 and 3 use side-specific zones; all other cameras use DEFAULT.
+# Empty polygons disable capture until real [x, y] points are marked.
+# Cam 1: LEFT/RIGHT use bottom-center. Cam 2: LEFT/RIGHT use right-edge center.
+# Cam 3: DEFAULT uses top-center. Cameras 4-9: DEFAULT use bottom-center.
 sample_every_n_frames: 3
 similarity_threshold: 0.90
 min_crop_size: 8
 
 cameras:
   1:
-    DEFAULT: []
+    LEFT: []
+    RIGHT: []
   2:
     LEFT: []
     RIGHT: []
   3:
-    LEFT: []
-    RIGHT: []
+    DEFAULT: []
   4:
     DEFAULT: []
   5:
