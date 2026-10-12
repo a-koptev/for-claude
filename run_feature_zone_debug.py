@@ -250,10 +250,10 @@ class Debugger:
         cap = cv2.VideoCapture(int(source) if source.isdigit() else source)
         if not cap.isOpened():
             raise RuntimeError(f"Cannot open video source: {source}")
-        self.log.info("START camera=%d video=%s entry_gate=%s db_writes=0",
-                      CAMERA_ID, source, ENTRY_GATE)
+        self.log.info("START camera=%d video=%s initial_zone_profile=%s db_writes=0",
+                      CAMERA_ID, source, self.profile)
         print("Debugger started. Click video to mark polygons/lines; press Q to quit.")
-        print("IMPORTANT: camera-1 barrier lines are only saved as markup; zone polygons drive feature sampling.")
+        print("Capture uses polygons and camera-specific bbox anchor points.")
         try:
             while True:
                 if not self.paused:
@@ -281,7 +281,7 @@ class Debugger:
                     if self.zones is not None:
                         decisions = self.zones.process_frame(
                             camera_id=CAMERA_ID, frame_id=self.frame_id, frame=frame,
-                            tracks=tracks, entry_gate=self.profile if CAMERA_ID in (2, 3) else None
+                            tracks=tracks
                         )
                         for track_id, accepted in decisions.items():
                             if accepted:
@@ -342,7 +342,7 @@ class Debugger:
             if self.zones is not None:
                 self.zones.close_all()
             report = {
-                "camera_id": CAMERA_ID, "video": source, "entry_gate": self.profile if CAMERA_ID in (2, 3) else None,
+                "camera_id": CAMERA_ID, "video": source, "selected_zone_profile": self.profile if CAMERA_ID in (1, 2) else "DEFAULT",
                 "frames_processed": self.frame_id,
                 "elapsed_seconds": round(time.time() - self.start_time, 2),
                 "accepted_samples": sum(self.accepted.values()),
