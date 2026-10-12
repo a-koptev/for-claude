@@ -90,6 +90,51 @@ class FeatureZoneManagerTests(unittest.TestCase):
         frame = np.ones((100, 100, 3), dtype=np.uint8)
         self.assertEqual(manager.process_frame(1, 0, frame, [(7, [10, 10, 50, 50])]), {})
 
+
+    def test_camera_2_requires_gate_specific_profile(self):
+        import yaml
+        config = {
+            "cameras": {
+                "2": {
+                    "LEFT": [[0, 0], [99, 0], [99, 99], [0, 99]],
+                    "RIGHT": [[100, 100], [199, 100], [199, 199], [100, 199]],
+                }
+            }
+        }
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".yaml", encoding="utf-8", delete=False)
+        yaml.safe_dump(config, tmp)
+        tmp.close()
+        self.addCleanup(lambda: Path(tmp.name).unlink(missing_ok=True))
+        fm = FakeFeaturesManager([np.array([1., 0.]), np.array([0., 1.])])
+        manager = FeatureZoneManager(fm, tmp.name, sample_every_n_frames=1)
+        frame = np.ones((220, 220, 3), dtype=np.uint8)
+        # Missing gate context must not silently select a side-specific profile.
+        self.assertEqual(manager.process_frame(2, 0, frame, [(7, [10, 10, 50, 50])]), {})
+        self.assertEqual(manager.process_frame(2, 1, frame, [(7, [10, 10, 50, 50])], entry_gate="LEFT"), {7: True})
+        self.assertEqual(len(fm.batches), 1)
+
+    def test_exit_event_closes_only_matching_camera_track(self):
+        from types import SimpleNamespace
+        from enum import Enum
+
+        class Role(Enum):
+            EXIT = "EXIT"
+            ENTER = "ENTER"
+
+        fm = FakeFeaturesManager([np.array([1., 0.]), np.array([0., 1.])])
+        manager = self.make_manager(fm)
+        frame = np.ones((100, 100, 3), dtype=np.uint8)
+        manager.process_frame(1, 0, frame, [(7, [10, 10, 50, 50])])
+        events = [
+            SimpleNamespace(camera_id=2, role=Role.EXIT, track_id=7),
+            SimpleNamespace(camera_id=1, role=Role.ENTER, track_id=7),
+            SimpleNamespace(camera_id=1, role=Role.EXIT, track_id=7),
+        ]
+        completed = manager.end_tracks_on_exit(1, events)
+        self.assertEqual(list(completed), [7])
+        self.assertEqual(completed[7]["sample_count"], 1)
+        self.assertEqual(manager.active_track_keys(), ())
+
     def test_end_track_is_scoped_to_camera_and_track(self):
         fm = FakeFeaturesManager([np.array([1., 0.]), np.array([0., 1.])])
         manager = self.make_manager(fm)
