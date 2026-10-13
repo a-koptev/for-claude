@@ -175,12 +175,14 @@ def main() -> None:
     crossings = {cid: CrossingDetector(network.camera(cid)) for cid in FEATURE_CAMERAS}
 
     try:
-        for camera_id, source in sources.items():
-            cap = cv2.VideoCapture(source)
-            if not cap.isOpened():
-                raise RuntimeError(f"Cannot open camera {camera_id} video source: {source}")
-            captures[camera_id] = cap
-            models[camera_id] = YOLO(Config.YOLO_CAR_MODEL_PATH)
+        # Start only camera 1. Cameras 2 and 3 are opened lazily after the trigger,
+        # so their video streams and per-camera trackers are not initialized up front.
+        first_source = sources[1]
+        first_capture = cv2.VideoCapture(first_source)
+        if not first_capture.isOpened():
+            raise RuntimeError(f"Cannot open camera 1 video source: {first_source}")
+        captures[1] = first_capture
+        models[1] = YOLO(Config.YOLO_CAR_MODEL_PATH)
         features = FeaturesManager(Config.OSNET_MODEL_PATH)
         plate_ocr = PlateOCRTracker(
             plate_model_path=Config.YOLO_PLATE_MODEL_PATH,
@@ -205,15 +207,10 @@ def main() -> None:
         print("Configured feature-capture cameras:", ", ".join(map(str, FEATURE_CAMERAS)))
         print("Camera sources 4-9 are configurable in Config.py but are not used for feature capture.")
 
-        # Trigger phase: display/process camera 1 only. Advance the other video
-        # sources in parallel so the clips remain approximately time-aligned.
+        # Trigger phase: only camera 1 is opened and advanced. The other videos
+        # will be opened after the trigger and seeked to camera 1's current frame index.
         while not trigger_fired:
             ok, raw = captures[1].read()
-            for other_id in (2, 3):
-                if other_id not in ended:
-                    other_ok, _ = captures[other_id].read()
-                    if not other_ok:
-                        ended.add(other_id)
             if not ok:
                 raise RuntimeError("Camera 1 video ended before a vehicle entered a feature zone.")
 
@@ -268,6 +265,27 @@ def main() -> None:
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (220, 220, 220), 2)
                     tiles[camera_id] = blank
                     continue
+
+                # Lazily open each secondary video only when capture begins.
+                # Camera 1 is processed first in this loop; frame_ids[1] has
+                # advanced by one, so frame_ids[1] - 1 is its current frame index.
+                if camera_id not in captures:
+                    source = sources[camera_id]
+                    cap = cv2.VideoCapture(source)
+                    if not cap.isOpened():
+                        raise RuntimeError(
+                            f"Cannot open camera {camera_id} video source: {source}"
+                        )
+                    target_frame = max(0, frame_ids[1] - 1)
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
+                    captures[camera_id] = cap
+                    frame_ids[camera_id] = target_frame
+                    print(
+                        f"[LAZY START] Camera {camera_id}: seeking to frame "
+                        f"{target_frame} to align with camera 1."
+                    )
+                    models[camera_id] = YOLO(Config.YOLO_CAR_MODEL_PATH)
+
                 ok, raw = captures[camera_id].read()
                 if not ok:
                     ended.add(camera_id)
