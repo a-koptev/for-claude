@@ -180,7 +180,12 @@ def main() -> None:
             )[0]
             boxes, ids, tracks = unpack_tracks(result)
             manager = managers[1]
-            manager.process_frame(1, frame_ids[1], frame, tracks)
+            trigger_decisions = manager.process_frame(1, frame_ids[1], frame, tracks)
+            for tid, was_accepted in trigger_decisions.items():
+                if was_accepted:
+                    accepted[1] += 1
+                else:
+                    rejected[1] += 1
             active_ids = {tid for cid, tid in manager.active_track_keys() if cid == 1}
             display = frame.copy()
             draw_zones(display, 1, zones_cfg)
