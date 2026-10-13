@@ -132,12 +132,6 @@ def mock_send_to_database(car_id: str, camera_id: int, track_id: int, gallery: d
         "total_features": original_count + flipped_count,
         "status": "MOCK_ONLY_NOT_WRITTEN",
     }
-    logging.info("MOCK_DB_SEND %s", json.dumps(record, ensure_ascii=False))
-    print(
-        "\n[MOCK DB] Car ID={car_id} | camera={camera_id} track={track_id} | "
-        "original={original_count} | flipped={flipped_count} | total={total_features} | "
-        "NOT WRITTEN".format(**record)
-    )
     return record
 
 
@@ -190,6 +184,7 @@ def main() -> None:
             ocr_checkpoint_path=Config.OCR_MODEL_PATH,
             plate_conf=Config.OCR_PLATE_CONF_THRESHOLD,
             plate_iou=Config.OCR_PLATE_IOU_THRESHOLD,
+            ocr_imgsz=Config.OCR_PLATE_IMGSZ,
             ocr_device=Config.OCR_DEVICE,
             ocr_batch_size=Config.OCR_BATCH_SIZE,
         )
