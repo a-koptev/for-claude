@@ -77,6 +77,45 @@ class FeatureZoneManagerTests(unittest.TestCase):
         self.assertEqual(result, {})
         self.assertEqual(fm.batches, [])
 
+    def test_activated_track_continues_sampling_outside_zone(self):
+        fm = FakeFeaturesManager([
+            np.array([1., 0.]), np.array([0., 1.]),
+            np.array([0., 1.]), np.array([1., 0.]),
+        ])
+        manager = self.make_manager(
+            fm, polygon=[[0, 0], [20, 0], [20, 20], [0, 20]]
+        )
+        frame = np.ones((100, 100, 3), dtype=np.uint8)
+        # Camera-1 anchor (bottom center) is inside the polygon: activate track.
+        self.assertEqual(
+            manager.process_frame(1, 0, frame, [(7, [0, 0, 15, 15])]),
+            {7: True},
+        )
+        # The same track has left the polygon, but remains visible and is sampled.
+        self.assertEqual(
+            manager.process_frame(1, 1, frame, [(7, [30, 30, 60, 60])]),
+            {7: True},
+        )
+        self.assertEqual([len(batch) for batch in fm.batches], [2, 2])
+        gallery = manager.end_track(1, 7)
+        self.assertEqual(gallery["sample_count"], 2)
+
+    def test_multiple_activated_tracks_are_batched_in_same_frame(self):
+        fm = FakeFeaturesManager([
+            np.array([1., 0.]), np.array([0., 1.]),
+            np.array([0., 1.]), np.array([1., 0.]),
+        ])
+        manager = self.make_manager(fm)
+        frame = np.ones((100, 100, 3), dtype=np.uint8)
+        result = manager.process_frame(
+            1, 0, frame,
+            [(7, [10, 10, 50, 50]), (8, [20, 20, 60, 60])],
+        )
+        self.assertEqual(result, {7: True, 8: True})
+        self.assertEqual(len(fm.batches), 1)
+        self.assertEqual(len(fm.batches[0]), 4)
+        self.assertEqual(set(manager.active_track_keys()), {(1, 7), (1, 8)})
+
     def test_sample_interval(self):
         fm = FakeFeaturesManager([])
         manager = self.make_manager(fm, interval=3)
