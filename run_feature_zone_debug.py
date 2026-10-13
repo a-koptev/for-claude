@@ -238,7 +238,8 @@ class Debugger:
                 anchor = ((x1 + x2) // 2, y1)
             else:
                 anchor = ((x1 + x2) // 2, y2)
-            cv2.circle(view, anchor, 5, (0, 255, 255), -1)
+            if CAMERA_ID in (1, 2, 3):
+                cv2.circle(view, anchor, 5, (0, 255, 255), -1)
 
         for event in events:
             cv2.putText(view, f"{event.role.value} track={event.track_id} line={event.line_id}",
@@ -336,9 +337,12 @@ class Debugger:
                 elif key == ord(" "):
                     self.paused = not self.paused
                 elif key == ord("e"):
-                    self.edit_polygon = not self.edit_polygon
-                    self.pending_points = self.profile_points().copy() if self.edit_polygon else []
-                    print(f"Polygon edit: {self.edit_polygon}. Click vertices in order; press S to save.")
+                    if CAMERA_ID not in (1, 2, 3):
+                        print("Камеры 4-9 не имеют зон сбора признаков.")
+                    else:
+                        self.edit_polygon = not self.edit_polygon
+                        self.pending_points = self.profile_points().copy() if self.edit_polygon else []
+                        print(f"Polygon edit: {self.edit_polygon}. Click vertices in order; press S to save.")
                 elif key == ord("1"):
                     self.set_profile("LEFT")
                 elif key == ord("2"):
