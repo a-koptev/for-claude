@@ -93,47 +93,65 @@ class FeatureZoneManager:
     def process_frame(self, camera_id: int, frame_id: int, frame: np.ndarray,
                       tracks: Iterable[tuple[int, Iterable[float]]],
                       entry_gate: str | None = None) -> dict[int, bool]:
-        """Sample every track whose anchor is inside a zone. entry_gate is kept for API compatibility."""
+        """Activate tracks when their anchor enters a zone, then sample them outside it too.
+
+        Zone membership is an activation trigger, not a spatial restriction on every
+        feature sample. All currently visible activated tracks on this camera are
+        considered on sampling frames, so multiple vehicles can be processed in one
+        batch. A new local track ID entering a zone gets its own gallery.
+        """
         camera_id = int(camera_id)
         if camera_id not in (1, 2, 3):
             return {}
-        if frame_id % self.sample_every_n_frames != 0:
-            return {}
-        h, w = frame.shape[:2]
-        pending: list[tuple[int, str, np.ndarray]] = []
+
+        # Trigger evaluation happens on every call, even when this frame is not a
+        # feature-sampling frame, so frame skipping cannot silently miss activation.
+        visible: dict[int, tuple[float, float, float, float]] = {}
         for track_id, bbox in tracks:
             track_id = int(track_id)
-            profile = self._matching_profile(camera_id, bbox)
-            if profile is None:
+            box = tuple(map(float, bbox))
+            visible[track_id] = box
+            key = (camera_id, track_id)
+            if key not in self._galleries:
+                profile = self._matching_profile(camera_id, box)
+                if profile is not None:
+                    self._galleries[key] = TrackGallery(camera_id, track_id, profile)
+
+        if frame_id % self.sample_every_n_frames != 0:
+            return {}
+
+        h, w = frame.shape[:2]
+        pending: list[tuple[int, str, np.ndarray]] = []
+        for (gallery_camera, track_id), gallery in list(self._galleries.items()):
+            if gallery_camera != camera_id or track_id not in visible:
                 continue
-            gallery = self._galleries.get((camera_id, track_id))
-            if gallery is not None and gallery.last_sample_frame == frame_id:
+            if gallery.last_sample_frame == frame_id:
                 continue
-            x1, y1, x2, y2 = map(int, bbox)
+            x1, y1, x2, y2 = map(int, visible[track_id])
             x1, x2 = max(0, x1), min(w, x2)
             y1, y2 = max(0, y1), min(h, y2)
             if x2 - x1 < self.min_crop_size or y2 - y1 < self.min_crop_size:
                 continue
             crop = frame[y1:y2, x1:x2].copy()
             if crop.size:
-                pending.append((track_id, profile, crop))
+                pending.append((track_id, gallery.zone_profile, crop))
+
         if not pending:
             return {}
+
+        # Originals and horizontal flips are passed in a single extractor call.
         batch = []
         for _, _, crop in pending:
             batch.extend((crop, cv2.flip(crop, 1)))
         features = self.features_manager.extract_features(batch)
         if len(features) != len(batch):
             raise RuntimeError(f"Feature extractor returned {len(features)} vectors for {len(batch)} crops")
+
         decisions = {}
         for index, (track_id, profile, _) in enumerate(pending):
             original = self._normalize(features[2 * index])
             flipped = self._normalize(features[2 * index + 1])
-            key = (camera_id, track_id)
-            gallery = self._galleries.get(key)
-            if gallery is None:
-                gallery = TrackGallery(camera_id, track_id, profile)
-                self._galleries[key] = gallery
+            gallery = self._galleries[(camera_id, track_id)]
             gallery.last_sample_frame = int(frame_id)
             if gallery.original:
                 similarity = self.features_manager.calculate_similarity(original, gallery.original[-1])
