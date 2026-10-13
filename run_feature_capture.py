@@ -249,7 +249,6 @@ def main() -> None:
             if active_ids:
                 trigger_fired = True
                 trigger_track_id = min(active_ids)
-                logging.info("TRIGGER camera=1 track=%d frame=%d", trigger_track_id, frame_ids[1] - 1)
                 print(f"\n[TRIGGER] Camera 1 track={trigger_track_id} entered a feature zone. Capture started.")
 
         while len(ended) < len(FEATURE_CAMERAS):
@@ -265,8 +264,6 @@ def main() -> None:
                 if not ok:
                     ended.add(camera_id)
                     for (cam, tid), gallery in managers[camera_id].close_all().items():
-                        logging.info("GALLERY_END camera=%d track=%d originals=%d reason=VIDEO_END",
-                                     cam, tid, gallery["sample_count"])
                     tiles[camera_id] = np.zeros((TILE_SIZE[1], TILE_SIZE[0], 3), dtype=np.uint8)
                     continue
 
