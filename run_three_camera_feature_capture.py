@@ -23,6 +23,8 @@ from ultralytics import YOLO
 from Config import Config
 from FeaturesModule.FeaturesManager import FeaturesManager
 from FeatureZoneModule import FeatureZoneManager
+from TopologyModule.CameraNetwork import CameraNetwork
+from TopologyModule.CrossingDetector import CrossingDetector
 
 
 # ---------------------------------------------------------------------------
@@ -71,7 +73,7 @@ def draw_polygon(tile: np.ndarray, points, color, label: str) -> None:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
 
-def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, frame_id):
+def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, frame_id, camera_lines=(), events=()):
     tile = cv2.resize(frame, TILE_SIZE)
     scale_x = TILE_SIZE[0] / frame.shape[1]
     scale_y = TILE_SIZE[1] / frame.shape[0]
@@ -81,6 +83,17 @@ def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, fr
     profiles = (("LEFT", (255, 140, 0)), ("RIGHT", (0, 165, 255))) if camera_id in (1, 2) else (("DEFAULT", (255, 200, 0)),)
     for profile, color in profiles:
         draw_polygon(tile, cam_cfg.get(profile, []) or [], color, profile)
+
+    # Use the project's existing transition lines and CrossingDetector geometry.
+    for line in camera_lines:
+        x1, y1 = line.p1
+        x2, y2 = line.p2
+        p1 = (int(x1 * scale_x), int(y1 * scale_y))
+        p2 = (int(x2 * scale_x), int(y2 * scale_y))
+        cv2.line(tile, p1, p2, (200, 0, 220), 2, cv2.LINE_AA)
+        midpoint = ((p1[0] + p2[0]) // 2, (p1[1] + p2[1]) // 2)
+        cv2.putText(tile, f"L{line.line_id}->C{line.peer_camera}", midpoint,
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, (200, 0, 220), 1, cv2.LINE_AA)
 
     for box, track_id in zip(boxes, ids):
         x1, y1, x2, y2 = map(float, box)
@@ -105,6 +118,12 @@ def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, fr
         else:
             anchor = ((x1 + x2) // 2, y2)
         cv2.circle(tile, anchor, 4, (0, 255, 255), -1)
+
+    for event in events:
+        role = getattr(event.role, "value", str(event.role))
+        label = f"{role} ID {event.track_id} -> camera {event.peer_camera}"
+        cv2.putText(tile, label, (8, tile.shape[0] - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 0, 255), 1, cv2.LINE_AA)
 
     cv2.rectangle(tile, (0, 0), (tile.shape[1], 48), (25, 25, 25), -1)
     cv2.putText(tile, f"CAMERA {camera_id} | frame {frame_id} | active tracks: {len(active_ids)}",
@@ -133,8 +152,12 @@ def main():
     accepted = Counter()
     rejected = Counter()
     ended = set()
+    transitions = Counter()
+    galleries_closed_on_exit = Counter()
     started_at = time.time()
     features = None
+    network = CameraNetwork.from_yaml(Config.TOPOLOGY_CONFIG_PATH)
+    crossings = {camera_id: CrossingDetector(network.camera(camera_id)) for camera_id in CAMERA_IDS}
 
     try:
         features = FeaturesManager(Config.OSNET_MODEL_PATH)
@@ -195,9 +218,45 @@ def main():
                     tracks = []
 
                 frame_id = frame_ids[camera_id]
+                # This is the same line-crossing / next-camera logic used by the
+                # single-camera debugger. Do not infer EXIT from track disappearance.
+                events = crossings[camera_id].update(frame_id, tracks)
+                for event in events:
+                    role = getattr(event.role, "value", str(event.role)).upper()
+                    transitions[f"{camera_id}:{role}->{event.peer_camera}"] += 1
+                    logging.info(
+                        "TRANSITION camera=%d frame=%d track=%d role=%s line=%d next_camera=%d",
+                        event.camera_id, event.frame_id, event.track_id, role,
+                        event.line_id, event.peer_camera
+                    )
+                    print(
+                        f"[CAM {camera_id}][frame {frame_id}] {role} track={event.track_id} "
+                        f"line={event.line_id} next_camera={event.peer_camera}"
+                    )
+
                 decisions = managers[camera_id].process_frame(
                     camera_id=camera_id, frame_id=frame_id, frame=frame, tracks=tracks
                 )
+
+                # A gallery ends on the topology's explicit EXIT event. In particular,
+                # an EXIT from camera 2 closes that car's feature collection and records
+                # the next camera reported by the existing topology algorithm.
+                for event in events:
+                    role = getattr(event.role, "value", str(event.role)).upper()
+                    if role != "EXIT":
+                        continue
+                    gallery = managers[camera_id].end_track(camera_id, int(event.track_id))
+                    if gallery is not None:
+                        galleries_closed_on_exit[camera_id] += 1
+                        logging.info(
+                            "GALLERY_END camera=%d track=%d samples=%d reason=LINE_EXIT next_camera=%d",
+                            camera_id, event.track_id, gallery["sample_count"], event.peer_camera
+                        )
+                        print(
+                            f"[CAM {camera_id}] gallery CLOSED for track {event.track_id}: "
+                            f"line EXIT -> camera {event.peer_camera}; "
+                            f"accepted originals={gallery['sample_count']}"
+                        )
                 for track_id, was_accepted in decisions.items():
                     if was_accepted:
                         accepted[camera_id] += 1
@@ -211,8 +270,10 @@ def main():
                         print(f"[CAM {camera_id}][frame {frame_id}] track {track_id}: skipped (similarity >= threshold)")
 
                 active_ids = {track_id for cam, track_id in managers[camera_id].active_track_keys() if cam == camera_id}
-                tiles[camera_id] = make_tile(camera_id, frame, boxes, ids, active_ids,
-                                              decisions, zones_cfg, frame_id)
+                tiles[camera_id] = make_tile(
+                    camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg,
+                    frame_id, camera_lines=network.lines(camera_id), events=events
+                )
                 frame_ids[camera_id] += 1
 
             top = np.hstack((tiles[1], tiles[2]))
@@ -242,6 +303,8 @@ def main():
             "frames_processed": {str(k): frame_ids[k] for k in CAMERA_IDS},
             "accepted_samples": {str(k): accepted[k] for k in CAMERA_IDS},
             "rejected_similar": {str(k): rejected[k] for k in CAMERA_IDS},
+            "transitions": dict(transitions),
+            "galleries_closed_on_line_exit": {str(k): galleries_closed_on_exit[k] for k in CAMERA_IDS},
             "galleries_at_shutdown": gallery_summary,
             "elapsed_seconds": round(time.time() - started_at, 2),
             "database_writes": 0,
