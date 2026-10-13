@@ -43,6 +43,9 @@ class FeatureZoneManager:
             raise ValueError("min_crop_size must be >= 1")
         self.similarity_threshold, self.sample_every_n_frames, self.min_crop_size = float(threshold), int(interval), int(crop_size)
         self._galleries: dict[tuple[int, int], TrackGallery] = {}
+        # Latest comparison against the last accepted ORIGINAL embedding, per local track.
+        # Kept between sampling frames so the UI can display it beneath the bbox.
+        self.last_comparison_by_track: dict[int, dict[str, float]] = {}
         self._polygons = self._parse_polygons(self.config.get("cameras", {}))
 
     @staticmethod
@@ -154,10 +157,18 @@ class FeatureZoneManager:
             gallery = self._galleries[(camera_id, track_id)]
             gallery.last_sample_frame = int(frame_id)
             if gallery.original:
-                similarity = self.features_manager.calculate_similarity(original, gallery.original[-1])
+                similarity = float(self.features_manager.calculate_similarity(original, gallery.original[-1]))
+                cosine_distance = 1.0 - similarity
+                self.last_comparison_by_track[track_id] = {
+                    "cosine_similarity": similarity,
+                    "cosine_distance": cosine_distance,
+                }
                 if similarity >= self.similarity_threshold:
                     decisions[track_id] = False
                     continue
+            else:
+                # No prior accepted original exists yet, so there is no pair to compare.
+                self.last_comparison_by_track.pop(track_id, None)
             gallery.original.append(original)
             gallery.flipped.append(flipped)
             decisions[track_id] = True
