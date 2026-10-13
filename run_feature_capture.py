@@ -36,6 +36,7 @@ ZONES_PATH = ROOT / "feature_zones.yaml"
 REPORT_PATH = ROOT / "feature_capture_run_report.json"
 LOG_PATH = ROOT / "feature_capture_run.log"
 
+
 def source_for(camera_id: int) -> str:
     """Resolve configured paths relative to the repository root."""
     value = str(Config.CAMERA_VIDEO_PATHS.get(camera_id, "") or "").strip()
@@ -262,7 +263,8 @@ def main() -> None:
                 ok, raw = captures[camera_id].read()
                 if not ok:
                     ended.add(camera_id)
-                    for (cam, tid), gallery in managers[camera_id].close_all().items():
+                    # Keep unfinished galleries open until shutdown so they are
+                    # included in the final report rather than silently discarded.
                     tiles[camera_id] = np.zeros((TILE_SIZE[1], TILE_SIZE[0], 3), dtype=np.uint8)
                     continue
 
@@ -284,7 +286,7 @@ def main() -> None:
                     )
                     for tid, reading in readings.items():
                         if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
-                            plate = normalize_plate(reading.text)
+                            plate = reading.text
                             if plate:
                                 plate_votes[(camera_id, int(tid))][plate].append(float(reading.ocr_confidence))
 
