@@ -83,3 +83,10 @@ Tests have been added but have not been executed in the project's runtime enviro
 Added `run_feature_capture.py` as an executable first-stage runner. It displays camera 1 while waiting for a zone activation, then switches to the three-camera capture view. A camera-2 topology EXIT event closes that camera's local gallery and prints a mock persistence record with a generated `MOCK-CAR-####` ID and original/flipped/total embedding counts. It never opens a real database connection.
 
 This is intentionally a mock boundary, not full production persistence. The mock record currently describes the camera-2 local gallery only; cross-camera session/gallery association and confirmation that a camera-2 entrant belongs to the registered-entry queue still need to be wired before treating counts as one physical car's total.
+
+
+## Стабилизация номера по наблюдениям OCR
+
+В \`run_feature_capture.py\` добавлено накопление OCR-уверенностей отдельно для каждого \`(camera_id, track_id)\`. Номер с максимальной средней уверенностью становится итоговым; число повторений используется как дополнительный критерий при равенстве средних. Нормализация объединяет визуально одинаковые кириллические и латинские символы номера.
+
+Файл \`feature_capture_run.log\` оставлен для коротких итоговых строк по завершённым трекам: выбранный номер, средняя OCR-уверенность, число original/flipped признаков и EXIT-линия с номером следующей камеры. Подробный поток кадров и промежуточные OCR-ответы в этот лог не записываются.
