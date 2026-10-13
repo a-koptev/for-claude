@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument("--video", default="../step_1/test_videos/1/side.ts", help="Video file or RTSP/other OpenCV source")
     parser.add_argument("--camera-id", type=int, default=1, help="Camera ID from topology.yaml")
     parser.add_argument("--entry-gate", choices=("LEFT", "RIGHT"), default=None,
-                        help="Persistent registration gate; required for camera 2/3 zones")
+                        help="Deprecated compatibility option; side is inferred from the hit zone on cameras 1/2")
     parser.add_argument("--zones", default="feature_zones.yaml", help="Path to feature_zones.yaml")
     parser.add_argument("--log", default="feature_zone_test.log", help="Diagnostic log path")
     parser.add_argument("--report", default="feature_zone_test_report.json", help="Summary JSON path")
@@ -62,13 +62,13 @@ def main():
         config = yaml.safe_load(stream) or {}
     camera_cfg = (config.get("cameras", {}) or {}).get(args.camera_id,
                   (config.get("cameras", {}) or {}).get(str(args.camera_id), {})) or {}
-    if args.camera_id in (2, 3):
-        selected = camera_cfg.get(args.entry_gate, []) if args.entry_gate else []
-        if not selected:
-            log.warning("No polygon for camera %s / gate %s: feature sampling is disabled.",
-                        args.camera_id, args.entry_gate or "(not supplied)")
+    if args.camera_id not in (1, 2, 3):
+        log.info("Camera %s is outside the feature-capture module; embeddings will not be extracted.", args.camera_id)
+    elif args.camera_id in (1, 2):
+        if not camera_cfg.get("LEFT") and not camera_cfg.get("RIGHT"):
+            log.warning("No LEFT/RIGHT polygons configured for camera %s; feature sampling is disabled.", args.camera_id)
     elif not camera_cfg.get("DEFAULT"):
-        log.warning("No DEFAULT polygon configured for camera %s: feature sampling is disabled.", args.camera_id)
+        log.warning("No DEFAULT polygon configured for camera 3: feature sampling is disabled.")
 
     video_source = int(args.video) if args.video.isdigit() else args.video
     cap = cv2.VideoCapture(video_source)
@@ -185,7 +185,7 @@ def main():
     report = {
         "video": args.video,
         "camera_id": args.camera_id,
-        "entry_gate": args.entry_gate,
+        "selected_zone_profile": args.entry_gate if args.camera_id in (1, 2) else ("DEFAULT" if args.camera_id == 3 else None),
         "frames_processed": frame_id,
         "elapsed_seconds": round(time.time() - start, 3),
         "accepted_samples_by_track": dict(accepted_total),
