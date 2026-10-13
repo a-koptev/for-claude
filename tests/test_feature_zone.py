@@ -149,7 +149,17 @@ class FeatureZoneManagerTests(unittest.TestCase):
         self.assertEqual(FeatureZoneManager.anchor(1, [10, 20, 50, 80]), (30.0, 80.0))
         self.assertEqual(FeatureZoneManager.anchor(2, [10, 20, 50, 80]), (50.0, 50.0))
         self.assertEqual(FeatureZoneManager.anchor(3, [10, 20, 50, 80]), (30.0, 20.0))
-        self.assertEqual(FeatureZoneManager.anchor(8, [10, 20, 50, 80]), (30.0, 80.0))
+        with self.assertRaises(ValueError):
+            FeatureZoneManager.anchor(8, [10, 20, 50, 80])
+
+
+    def test_cameras_4_to_9_never_extract_features(self):
+        fm = FakeFeaturesManager([])
+        manager = self.make_manager(fm)
+        frame = np.ones((100, 100, 3), dtype=np.uint8)
+        for camera_id in range(4, 10):
+            self.assertEqual(manager.process_frame(camera_id, 0, frame, [(7, [10, 10, 50, 50])]), {})
+        self.assertEqual(fm.batches, [])
 
     def test_track_id_switch_inside_zone_starts_new_gallery_and_is_sampled(self):
         fm = FakeFeaturesManager([
