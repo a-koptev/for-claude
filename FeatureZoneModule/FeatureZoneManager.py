@@ -23,8 +23,8 @@ class TrackGallery:
                 "flipped": list(self.flipped), "sample_count": len(self.original)}
 
 class FeatureZoneManager:
-    """Capture in polygons using cam1 bottom-center, cam2 right-center, cam3 top-center,
-    and bottom-center for cameras 4-9. Cameras 1 and 2 detect LEFT/RIGHT zones automatically.
+    """Capture only on cameras 1-3: cam1 bottom-center, cam2 right-center, cam3 top-center.
+    Cameras 4-9 are intentionally ignored by this module.
     """
     def __init__(self, features_manager, config_path: str | Path = "feature_zones.yaml",
                  similarity_threshold: float | None = None,
@@ -66,8 +66,11 @@ class FeatureZoneManager:
 
     @staticmethod
     def anchor(camera_id: int, bbox) -> tuple[float, float]:
+        camera_id = int(camera_id)
+        if camera_id not in (1, 2, 3):
+            raise ValueError("Feature capture anchors are defined only for cameras 1, 2, and 3")
         x1, y1, x2, y2 = map(float, bbox)
-        if int(camera_id) == 2:
+        if camera_id == 2:
             return x2, (y1 + y2) / 2.0
         if int(camera_id) == 3:
             return (x1 + x2) / 2.0, y1
@@ -92,6 +95,8 @@ class FeatureZoneManager:
                       entry_gate: str | None = None) -> dict[int, bool]:
         """Sample every track whose anchor is inside a zone. entry_gate is kept for API compatibility."""
         camera_id = int(camera_id)
+        if camera_id not in (1, 2, 3):
+            return {}
         if frame_id % self.sample_every_n_frames != 0:
             return {}
         h, w = frame.shape[:2]
