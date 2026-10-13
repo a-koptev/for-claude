@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import cv2
@@ -22,6 +22,7 @@ from ultralytics import YOLO
 
 from Config import Config
 from FeaturesModule.FeaturesManager import FeaturesManager
+from PlateOCRModule import PlateOCRTracker
 from FeatureZoneModule import FeatureZoneManager
 from TopologyModule.CameraNetwork import CameraNetwork
 from TopologyModule.CrossingDetector import CrossingDetector
@@ -34,6 +35,7 @@ WINDOW_NAME = "Parking feature capture"
 ZONES_PATH = ROOT / "feature_zones.yaml"
 REPORT_PATH = ROOT / "feature_capture_run_report.json"
 LOG_PATH = ROOT / "feature_capture_run.log"
+PLATE_CHAR_MAP = str.maketrans({"А":"A", "В":"B", "Е":"E", "К":"K", "М":"M", "Н":"H", "О":"O", "Р":"P", "С":"C", "Т":"T", "У":"Y", "Х":"X"})
 
 
 def source_for(camera_id: int) -> str:
@@ -86,6 +88,37 @@ def draw_tracks(image: np.ndarray, boxes, track_ids, active_ids, comparisons=Non
                         (255, 255, 255), 1, cv2.LINE_AA)
 
 
+
+def normalize_plate(text: str) -> str:
+    """Group visually equivalent Cyrillic and Latin plate characters."""
+    value = str(text or "").upper().translate(PLATE_CHAR_MAP)
+    return "".join(ch for ch in value if ch.isalnum())
+
+
+def best_plate(votes: dict[str, list[float]]) -> tuple[str, float]:
+    """Choose highest mean confidence; vote count breaks ties."""
+    if not votes:
+        return "UNKNOWN", 0.0
+    plate, scores = max(
+        votes.items(),
+        key=lambda item: (sum(item[1]) / len(item[1]), len(item[1]), item[0]),
+    )
+    return plate, sum(scores) / len(scores)
+
+
+def draw_plate_labels(image, camera_id, boxes, track_ids, active_ids, votes_by_track):
+    for box, track_id in zip(boxes, track_ids):
+        track_id = int(track_id)
+        if track_id not in active_ids:
+            continue
+        plate, confidence = best_plate(votes_by_track.get((camera_id, track_id), {}))
+        label = f"plate: {plate} ({confidence:.2f})" if plate != "UNKNOWN" else "plate: reading..."
+        x1, y1, x2, y2 = map(int, box)
+        y = min(image.shape[0] - 6, y2 + 38)
+        cv2.putText(image, label, (x1, y), cv2.FONT_HERSHEY_SIMPLEX, 0.48,
+                    (0, 255, 255), 1, cv2.LINE_AA)
+
+
 def mock_send_to_database(car_id: str, camera_id: int, track_id: int, gallery: dict) -> dict:
     """Mock persistence only: deliberately does not connect to PostgreSQL."""
     original_count = len(gallery.get("original", []))
@@ -119,7 +152,7 @@ def unpack_tracks(result):
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(message)s",
+        format="%(message)s",
         handlers=[logging.FileHandler(LOG_PATH, encoding="utf-8"), logging.StreamHandler()],
     )
     with ZONES_PATH.open("r", encoding="utf-8") as stream:
@@ -132,6 +165,7 @@ def main() -> None:
     frame_ids = Counter()
     ended = set()
     mock_records = []
+    plate_votes = defaultdict(lambda: defaultdict(list))
     car_sequence = 0
     accepted = Counter()
     rejected = Counter()
@@ -151,6 +185,14 @@ def main() -> None:
             captures[camera_id] = cap
             models[camera_id] = YOLO(Config.YOLO_CAR_MODEL_PATH)
         features = FeaturesManager(Config.OSNET_MODEL_PATH)
+        plate_ocr = PlateOCRTracker(
+            plate_model_path=Config.YOLO_PLATE_MODEL_PATH,
+            ocr_checkpoint_path=Config.OCR_MODEL_PATH,
+            plate_conf=Config.OCR_PLATE_CONF_THRESHOLD,
+            plate_iou=Config.OCR_PLATE_IOU_THRESHOLD,
+            ocr_device=Config.OCR_DEVICE,
+            ocr_batch_size=Config.OCR_BATCH_SIZE,
+        )
         for camera_id in FEATURE_CAMERAS:
             managers[camera_id] = FeatureZoneManager(features, str(ZONES_PATH))
 
@@ -187,9 +229,19 @@ def main() -> None:
                 else:
                     rejected[1] += 1
             active_ids = {tid for cid, tid in manager.active_track_keys() if cid == 1}
+            if frame_ids[1] % max(1, Config.OCR_EVERY_N_FRAMES) == 0 and active_ids:
+                readings = plate_ocr.recognize(
+                    frame, [(int(tid), box) for box, tid in zip(boxes, ids) if int(tid) in active_ids]
+                )
+                for tid, reading in readings.items():
+                    if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
+                        plate = normalize_plate(reading.text)
+                        if plate:
+                            plate_votes[(1, int(tid))][plate].append(float(reading.ocr_confidence))
             display = frame.copy()
             draw_zones(display, 1, zones_cfg)
             draw_tracks(display, boxes, ids, active_ids, manager.last_comparison_by_track)
+            draw_plate_labels(display, 1, boxes, ids, active_ids, plate_votes)
             status = "TRIGGER FIRED - starting capture" if active_ids else "WAITING: car must enter LEFT/RIGHT zone"
             cv2.rectangle(display, (0, 0), (1280, 42), (25, 25, 25), -1)
             cv2.putText(display, status, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
@@ -233,6 +285,17 @@ def main() -> None:
                 frame_id = frame_ids[camera_id]
                 events = crossings[camera_id].update(frame_id, tracks)
                 decisions = managers[camera_id].process_frame(camera_id, frame_id, frame, tracks)
+                active_before_exit = {tid for cam, tid in managers[camera_id].active_track_keys() if cam == camera_id}
+                if frame_id % max(1, Config.OCR_EVERY_N_FRAMES) == 0 and active_before_exit:
+                    readings = plate_ocr.recognize(
+                        frame,
+                        [(int(tid), box) for box, tid in zip(boxes, ids) if int(tid) in active_before_exit],
+                    )
+                    for tid, reading in readings.items():
+                        if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
+                            plate = normalize_plate(reading.text)
+                            if plate:
+                                plate_votes[(camera_id, int(tid))][plate].append(float(reading.ocr_confidence))
 
                 for tid, was_accepted in decisions.items():
                     if was_accepted:
@@ -243,30 +306,35 @@ def main() -> None:
                 for event in events:
                     role = getattr(event.role, "value", str(event.role)).upper()
                     transitions[f"{camera_id}:{role}->{event.peer_camera}"] += 1
-                    logging.info("TRANSITION camera=%d frame=%d track=%d role=%s next_camera=%d",
-                                 camera_id, frame_id, event.track_id, role, event.peer_camera)
                     if role != "EXIT":
                         continue
                     gallery = managers[camera_id].end_track(camera_id, int(event.track_id))
                     if gallery is None:
                         continue
                     galleries_closed[camera_id] += 1
-                    logging.info("GALLERY_END camera=%d track=%d originals=%d reason=LINE_EXIT next_camera=%d",
-                                 camera_id, event.track_id, gallery["sample_count"], event.peer_camera)
-                    print(f"[CAM {camera_id}] track={event.track_id} gallery closed by EXIT line -> camera {event.peer_camera}; "
-                          f"originals={len(gallery['original'])}, flips={len(gallery['flipped'])}")
-                    # Mock persistence is intentionally attached to camera-2 EXIT,
-                    # the current overall collection-completion signal.
+                    plate, plate_confidence = best_plate(plate_votes.get((camera_id, int(event.track_id)), {}))
+                    original_count = len(gallery.get("original", []))
+                    flipped_count = len(gallery.get("flipped", []))
+                    logging.info(
+                        "track=%s:%d plate=%s plate_conf=%.3f features=%d (original=%d, flipped=%d) crossed_line=%d next_camera=%d",
+                        camera_id, int(event.track_id), plate, plate_confidence,
+                        original_count + flipped_count, original_count, flipped_count,
+                        event.line_id, event.peer_camera,
+                    )
                     if camera_id == 2:
                         car_sequence += 1
-                        mock_records.append(mock_send_to_database(
+                        record = mock_send_to_database(
                             f"MOCK-CAR-{car_sequence:04d}", camera_id, int(event.track_id), gallery
-                        ))
+                        )
+                        record["plate"] = plate
+                        record["plate_confidence"] = plate_confidence
+                        mock_records.append(record)
 
                 active_ids = {tid for cid, tid in managers[camera_id].active_track_keys() if cid == camera_id}
                 display = frame.copy()
                 draw_zones(display, camera_id, zones_cfg)
                 draw_tracks(display, boxes, ids, active_ids, managers[camera_id].last_comparison_by_track)
+                draw_plate_labels(display, camera_id, boxes, ids, active_ids, plate_votes)
                 cv2.rectangle(display, (0, 0), (1280, 45), (25, 25, 25), -1)
                 cv2.putText(display, f"CAMERA {camera_id} | frame {frame_id} | active galleries: {len(active_ids)}",
                             (12, 29), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (255, 255, 255), 2, cv2.LINE_AA)
@@ -313,8 +381,6 @@ def main() -> None:
         }
         REPORT_PATH.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"\nReport: {REPORT_PATH}")
-        print(f"Mock records: {len(mock_records)} | real database writes: 0")
-        logging.info("REPORT %s", REPORT_PATH)
 
 
 if __name__ == "__main__":
