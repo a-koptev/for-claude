@@ -17,6 +17,21 @@ class Config:
 
     DEVICE: str = "cpu"
 
+    # Local video files / RTSP URLs for cameras 1-9.
+    # Set unused sources to "". Feature capture currently processes only cameras 1-3;
+    # cameras 4-9 are configured here for the wider tracking pipeline, not Re-ID capture.
+    CAMERA_VIDEO_PATHS = {
+        1: os.getenv("PARKING_CAMERA_1_VIDEO", "videos/test_videos/1/side.ts"),
+        2: os.getenv("PARKING_CAMERA_2_VIDEO", "videos/test_videos/2/side.ts"),
+        3: os.getenv("PARKING_CAMERA_3_VIDEO", "videos/test_videos/3/side.ts"),
+        4: os.getenv("PARKING_CAMERA_4_VIDEO", ""),
+        5: os.getenv("PARKING_CAMERA_5_VIDEO", ""),
+        6: os.getenv("PARKING_CAMERA_6_VIDEO", ""),
+        7: os.getenv("PARKING_CAMERA_7_VIDEO", ""),
+        8: os.getenv("PARKING_CAMERA_8_VIDEO", ""),
+        9: os.getenv("PARKING_CAMERA_9_VIDEO", ""),
+    }
+
     # Сеть камер и линии перехода (см. TopologyModule, проверка: python check_topology.py)
     TOPOLOGY_CONFIG_PATH = str(BASE_DIR / "topology.yaml")
     # Детектор переходов: событие возникает, когда линия находится
