@@ -44,6 +44,7 @@ class PlateOCRTracker:
         plate_imgsz: int = 640,
         ocr_device: str = "auto",
         ocr_batch_size: int = 32,
+        plate_device: str | int = "cpu",
     ) -> None:
         plate_model_path = Path(plate_model_path)
         ocr_checkpoint_path = Path(ocr_checkpoint_path)
@@ -60,6 +61,7 @@ class PlateOCRTracker:
             )
 
         self.plate_model = YOLO(str(plate_model_path))
+        self.plate_device = plate_device
         self.ocr = OCRPipeline(
             ocr_checkpoint_path,
             device=ocr_device,
@@ -109,6 +111,7 @@ class PlateOCRTracker:
             conf=self.plate_conf,
             iou=self.plate_iou,
             verbose=False,
+            device=self.plate_device,
         )
 
         plate_images: List[Image.Image] = []
