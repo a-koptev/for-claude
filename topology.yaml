@@ -53,7 +53,7 @@ cameras:
     name: "Камера 3"
     lines:
       - {id: 1, p1: [500, 100], p2: [800, 100], peer: 4, exit: UP}
-      - {id: 2, p1: [350, 100], p2: [350, 700], peer: 9, exit: LEFT}
+      - {id: 2, p1: [150, 100], p2: [150, 700], peer: 9, exit: LEFT}
 
   - id: 4
     name: "Камера 4"

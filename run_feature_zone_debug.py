@@ -39,8 +39,8 @@ from TopologyModule.CrossingDetector import CrossingDetector
 # =============================================================================
 # SETTINGS — change these in PyCharm, then press Run. No CLI arguments needed.
 # =============================================================================
-CAMERA_ID = 1
-VIDEO_SOURCE = r"../step_1/test_videos/1/side.ts"  # video path, webcam index as string ("0"), or RTSP URL
+CAMERA_ID = 3
+VIDEO_SOURCE = r"videos/test_videos/1/side.ts"  # video path, webcam index as string ("0"), or RTSP URL
 ENTRY_GATE = "LEFT"  # initial zone profile for camera 1/2: LEFT or RIGHT
 FRAME_SIZE = (1280, 720)
 SAMPLE_EVERY_N_FRAMES = 3

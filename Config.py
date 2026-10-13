@@ -33,18 +33,18 @@ class Config:
     TRANSITION_FORGET_FRAMES = 150
 
     YOLO_TRACK_CONFIG_PATH = str(BASE_DIR / "vehicle_botsort_conf.yaml")
-    YOLO_CAR_MODEL_PATH = str(BASE_DIR / "Models/Tracking/YOLO26/1809_epoch0.pt")
+    YOLO_CAR_MODEL_PATH = str(BASE_DIR / "Models/Tracking/2009/2009_best.pt")
     # OSNET_MODEL_PATH = str(BASE_DIR / "Models/ReID/OSNet/model_veri_1.pth")
-    OSNET_MODEL_PATH = str(BASE_DIR / "Models/ReID/OSNet/model_new_6.pth")
+    OSNET_MODEL_PATH = str(BASE_DIR / "Models/ReID/OSNet/1110/A/model_20_a.pth")
 
     # OCR integration: plate detector runs inside the tracked vehicle crop, then PARSeq reads the plate crop.
     YOLO_PLATE_MODEL_PATH = os.getenv(
         "PARKING_PLATE_YOLO_MODEL_PATH",
-        str(BASE_DIR / "Models/PlateRecognition/YOLOv8/best.pt"),
+        str(BASE_DIR / "Models/OCR/best_yolo26.pt"),
     )
     OCR_MODEL_PATH = os.getenv(
         "PARKING_OCR_MODEL_PATH",
-        str(BASE_DIR / "ocr_plate_number_soft/best_ocr.pt"),
+        str(BASE_DIR / "Models/OCR/best_ocr.pt"),
     )
     OCR_EVERY_N_FRAMES = int(os.getenv("PARKING_OCR_EVERY_N_FRAMES", "5"))
     OCR_PLATE_CONF_THRESHOLD = float(os.getenv("PARKING_PLATE_CONF_THRESHOLD", "0.50"))
