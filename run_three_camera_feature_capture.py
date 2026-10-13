@@ -73,10 +73,11 @@ def draw_polygon(tile: np.ndarray, points, color, label: str) -> None:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1, cv2.LINE_AA)
 
 
-def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, frame_id, camera_lines=(), events=()):
+def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, frame_id, camera_lines=(), events=(), comparisons=None):
     tile = cv2.resize(frame, TILE_SIZE)
     scale_x = TILE_SIZE[0] / frame.shape[1]
     scale_y = TILE_SIZE[1] / frame.shape[0]
+    comparisons = comparisons or {}
     cam_cfg = zones_cfg.get("cameras", {})
     cam_cfg = cam_cfg.get(str(camera_id), cam_cfg.get(camera_id, {})) or {}
 
@@ -110,6 +111,24 @@ def make_tile(camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg, fr
             status = "similarity >= threshold (skip)"
         cv2.putText(tile, f"ID {track_id} | {status}", (x1, max(16, y1 - 7)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+
+        # Keep the latest comparison visible under the vehicle bbox, including
+        # between feature-sampling frames.
+        comparison = comparisons.get(int(track_id))
+        if comparison is not None:
+            similarity = comparison["cosine_similarity"]
+            distance = comparison["cosine_distance"]
+            metric_label = f"cos dist: {distance:.3f} | sim: {similarity:.3f}"
+            metric_y = min(tile.shape[0] - 5, y2 + 17)
+            (text_w, text_h), baseline = cv2.getTextSize(
+                metric_label, cv2.FONT_HERSHEY_SIMPLEX, 0.43, 1
+            )
+            bg_x2 = min(tile.shape[1] - 1, x1 + text_w + 6)
+            bg_y1 = max(0, metric_y - text_h - 3)
+            bg_y2 = min(tile.shape[0] - 1, metric_y + baseline + 2)
+            cv2.rectangle(tile, (x1, bg_y1), (bg_x2, bg_y2), (20, 20, 20), -1)
+            cv2.putText(tile, metric_label, (x1 + 3, metric_y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.43, (255, 255, 255), 1, cv2.LINE_AA)
 
         if camera_id == 2:
             anchor = (x2, (y1 + y2) // 2)
@@ -272,7 +291,8 @@ def main():
                 active_ids = {track_id for cam, track_id in managers[camera_id].active_track_keys() if cam == camera_id}
                 tiles[camera_id] = make_tile(
                     camera_id, frame, boxes, ids, active_ids, decisions, zones_cfg,
-                    frame_id, camera_lines=network.lines(camera_id), events=events
+                    frame_id, camera_lines=network.lines(camera_id), events=events,
+                    comparisons=managers[camera_id].last_comparison_by_track
                 )
                 frame_ids[camera_id] += 1
 
