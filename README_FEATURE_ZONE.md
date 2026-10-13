@@ -82,3 +82,8 @@
 ## Проверки
 
 Запустить `python -m unittest discover -s tests -p test_feature_zone.py`. Тесты используют fake extractor и не требуют весов OSNet. Нужны OpenCV, NumPy и PyYAML.
+
+
+## Запуск сценария с триггером
+
+Для запуска цикла «ожидание машины на камере 1 → сбор признаков на камерах 1–3 → мок БД по EXIT камеры 2» см. [README_FEATURE_CAPTURE_RUN.md](README_FEATURE_CAPTURE_RUN.md) и запустите `python run_feature_capture.py`. Пути всех камер 1–9 задаются в `Config.py` через `Config.CAMERA_VIDEO_PATHS`; сам сбор признаков в этом runner ограничен камерами 1–3.
