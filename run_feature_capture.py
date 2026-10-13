@@ -35,8 +35,6 @@ WINDOW_NAME = "Parking feature capture"
 ZONES_PATH = ROOT / "feature_zones.yaml"
 REPORT_PATH = ROOT / "feature_capture_run_report.json"
 LOG_PATH = ROOT / "feature_capture_run.log"
-PLATE_CHAR_MAP = str.maketrans({"А":"A", "В":"B", "Е":"E", "К":"K", "М":"M", "Н":"H", "О":"O", "Р":"P", "С":"C", "Т":"T", "У":"Y", "Х":"X"})
-
 
 def source_for(camera_id: int) -> str:
     """Resolve configured paths relative to the repository root."""
@@ -88,11 +86,6 @@ def draw_tracks(image: np.ndarray, boxes, track_ids, active_ids, comparisons=Non
                         (255, 255, 255), 1, cv2.LINE_AA)
 
 
-
-def normalize_plate(text: str) -> str:
-    """Group visually equivalent Cyrillic and Latin plate characters."""
-    value = str(text or "").upper().translate(PLATE_CHAR_MAP)
-    return "".join(ch for ch in value if ch.isalnum())
 
 
 def best_plate(votes: dict[str, list[float]]) -> tuple[str, float]:
@@ -236,7 +229,7 @@ def main() -> None:
                 )
                 for tid, reading in readings.items():
                     if reading.ocr_confidence >= Config.OCR_MIN_CHAR_CONFIDENCE:
-                        plate = normalize_plate(reading.text)
+                        plate = reading.text
                         if plate:
                             plate_votes[(1, int(tid))][plate].append(float(reading.ocr_confidence))
             display = frame.copy()
