@@ -76,3 +76,10 @@ This is not yet wired into the production/preproduction camera loop. The integra
 7. bounded feature-extraction workers and orderly shutdown.
 
 Tests have been added but have not been executed in the project's runtime environment as part of this change.
+
+
+## Trigger-driven runner
+
+Added `run_feature_capture.py` as an executable first-stage runner. It displays camera 1 while waiting for a zone activation, then switches to the three-camera capture view. A camera-2 topology EXIT event closes that camera's local gallery and prints a mock persistence record with a generated `MOCK-CAR-####` ID and original/flipped/total embedding counts. It never opens a real database connection.
+
+This is intentionally a mock boundary, not full production persistence. The mock record currently describes the camera-2 local gallery only; cross-camera session/gallery association and confirmation that a camera-2 entrant belongs to the registered-entry queue still need to be wired before treating counts as one physical car's total.
