@@ -144,11 +144,17 @@ def unpack_tracks(result):
 
 
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(message)s",
-        handlers=[logging.FileHandler(LOG_PATH, encoding="utf-8"), logging.StreamHandler()],
-    )
+    summary_logger = logging.getLogger("feature_capture_summary")
+    summary_logger.setLevel(logging.INFO)
+    summary_logger.propagate = False
+    summary_logger.handlers.clear()
+    summary_formatter = logging.Formatter("%(message)s")
+    file_handler = logging.FileHandler(LOG_PATH, mode="w", encoding="utf-8")
+    file_handler.setFormatter(summary_formatter)
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(summary_formatter)
+    summary_logger.addHandler(file_handler)
+    summary_logger.addHandler(console_handler)
     with ZONES_PATH.open("r", encoding="utf-8") as stream:
         zones_cfg = yaml.safe_load(stream) or {}
 
@@ -307,7 +313,7 @@ def main() -> None:
                     plate, plate_confidence = best_plate(plate_votes.get((camera_id, int(event.track_id)), {}))
                     original_count = len(gallery.get("original", []))
                     flipped_count = len(gallery.get("flipped", []))
-                    logging.info(
+                    summary_logger.info(
                         "track=%s:%d plate=%s plate_conf=%.3f features=%d (original=%d, flipped=%d) crossed_line=%d next_camera=%d",
                         camera_id, int(event.track_id), plate, plate_confidence,
                         original_count + flipped_count, original_count, flipped_count,
@@ -321,6 +327,7 @@ def main() -> None:
                         record["plate"] = plate
                         record["plate_confidence"] = plate_confidence
                         mock_records.append(record)
+                    plate_votes.pop((camera_id, int(event.track_id)), None)
 
                 active_ids = {tid for cid, tid in managers[camera_id].active_track_keys() if cid == camera_id}
                 display = frame.copy()
