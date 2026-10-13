@@ -48,7 +48,7 @@ SIMILARITY_THRESHOLD = 0.90
 LOST_TTL_FRAMES = 30
 SHOW_TRANSITION_LINES = True
 RUN_OSNET_FEATURES = True  # False = inspect tracking/markup without loading OSNet
-WINDOW_NAME = "Barrier + ReID feature-zone debugger"
+WINDOW_NAME = "ReID feature-zone debugger"
 
 ROOT = Path(__file__).resolve().parent
 ZONES_PATH = ROOT / "feature_zones.yaml"
@@ -216,8 +216,10 @@ class Debugger:
                 cv2.putText(view, str(i + 1), (point[0] + 5, point[1] - 5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
         elif not self.edit_polygon:
-            cv2.putText(view, "ZONE NOT CONFIGURED - press E and click polygon vertices",
-                        (18, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
+            message = ("FEATURE CAPTURE DISABLED: cameras 4-9" if CAMERA_ID not in (1, 2, 3)
+                       else "ZONE NOT CONFIGURED - press E and click polygon vertices")
+            cv2.putText(view, message, (18, 95),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 255), 2)
 
         if SHOW_TRANSITION_LINES:
             for line in self.network.lines(CAMERA_ID):
