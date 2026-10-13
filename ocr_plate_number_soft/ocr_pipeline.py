@@ -11,7 +11,7 @@ try:
     from .checkpoint import load_checkpoint
 except ImportError:
     from checkpoint import load_checkpoint
-from data import AspectBucketizer, letterbox_to_bucket
+from .data import AspectBucketizer, letterbox_to_bucket
 
 
 class OCRPipeline:

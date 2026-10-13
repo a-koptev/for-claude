@@ -32,9 +32,9 @@ from TopologyModule.CrossingDetector import CrossingDetector
 # Example: r"D:\\parking\\camera1.mp4"
 # ---------------------------------------------------------------------------
 VIDEO_PATHS = {
-    1: r"videos/test_videos/1/side.ts",
-    2: r"videos/test_videos/2/side.ts",
-    3: r"videos/test_videos/3/side.ts",
+    1: r"videos/test_videos/1/vezd.ts",
+    2: r"videos/test_videos/1/sboku.ts",
+    3: r"videos/test_videos/1/szadi_v1.ts",
 }
 
 # Each camera is displayed at this size; the combined window is 2x2 tiles.
