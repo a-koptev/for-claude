@@ -12,6 +12,18 @@ from ultralytics import YOLO
 from ocr_plate_number_soft.ocr_pipeline import OCRPipeline
 
 
+_PLATE_CHAR_MAP = str.maketrans({
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H",
+    "О": "O", "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X",
+})
+
+
+def normalize_plate_text(text: str) -> str:
+    """Normalize visually equivalent Cyrillic/Latin plate letters and spacing."""
+    value = str(text or "").upper().translate(_PLATE_CHAR_MAP)
+    return "".join(char for char in value if char.isalnum())
+
+
 @dataclass
 class PlateReading:
     text: str
@@ -137,7 +149,7 @@ class PlateOCRTracker:
         readings: Dict[int, PlateReading] = {}
 
         for (track_id, plate_conf), pred in zip(plate_meta, predictions):
-            text = str(pred.get("text", "")).strip()
+            text = normalize_plate_text(str(pred.get("text", "")).strip())
             if not text:
                 continue
 
