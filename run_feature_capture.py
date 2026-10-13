@@ -184,7 +184,7 @@ def main() -> None:
             ocr_checkpoint_path=Config.OCR_MODEL_PATH,
             plate_conf=Config.OCR_PLATE_CONF_THRESHOLD,
             plate_iou=Config.OCR_PLATE_IOU_THRESHOLD,
-            ocr_imgsz=Config.OCR_PLATE_IMGSZ,
+            plate_imgsz=Config.OCR_PLATE_IMGSZ,
             ocr_device=Config.OCR_DEVICE,
             ocr_batch_size=Config.OCR_BATCH_SIZE,
         )
