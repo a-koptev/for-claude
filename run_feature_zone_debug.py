@@ -6,7 +6,7 @@ Mouse / keyboard:
   e - toggle polygon edit mode; left-click adds polygon vertices
   1 - select LEFT zone (cameras 1 and 2)
   2 - select RIGHT zone (cameras 1 and 2)
-  d - select DEFAULT zone (camera 3 and cameras 4-9)
+  d - select DEFAULT zone (camera 3 only)
   s - save the current polygon
   c - clear the current polygon
   space - pause/resume video
@@ -96,7 +96,7 @@ class Debugger:
             "cameras": {},
         })
         self.zones_cfg.setdefault("cameras", {})
-         self.profile = ENTRY_GATE.upper() if CAMERA_ID in (1, 2) else "DEFAULT"
+        self.profile = ENTRY_GATE.upper() if CAMERA_ID in (1, 2) else "DEFAULT"
         self.edit_polygon = False
         self.paused = False
         self.pending_points: list[list[int]] = []
@@ -123,6 +123,8 @@ class Debugger:
         cv2.setMouseCallback(WINDOW_NAME, self.on_mouse)
 
     def profile_points(self) -> list:
+        if CAMERA_ID not in (1, 2, 3):
+            return []
         cam = self.zones_cfg["cameras"].get(CAMERA_ID,
               self.zones_cfg["cameras"].get(str(CAMERA_ID), {})) or {}
         return cam.get(self.profile, []) or []
@@ -131,8 +133,11 @@ class Debugger:
         if CAMERA_ID in (1, 2) and profile not in ("LEFT", "RIGHT"):
             print("Для камер 1/2 выберите профиль LEFT или RIGHT.")
             return
-        if CAMERA_ID not in (1, 2) and profile != "DEFAULT":
-            print("Камеры 3-9 используют профиль DEFAULT.")
+        if CAMERA_ID == 3 and profile != "DEFAULT":
+            print("Камера 3 использует только профиль DEFAULT.")
+            return
+        if CAMERA_ID not in (1, 2, 3):
+            print("Камеры 4-9 не участвуют в сборе признаков.")
             return
         self.profile = profile
         self.pending_points.clear()
@@ -146,6 +151,9 @@ class Debugger:
             return
  
     def save_config(self):
+        if CAMERA_ID not in (1, 2, 3):
+            print("Камеры 4-9 не имеют зон сбора признаков; сохранять нечего.")
+            return
         cameras_cfg = self.zones_cfg.setdefault("cameras", {})
         cam_key = str(CAMERA_ID)
         # YAML may parse unquoted camera IDs as integers. Normalize this key before saving,
@@ -167,6 +175,9 @@ class Debugger:
             self.zones = FeatureZoneManager(self.features, str(ZONES_PATH))
 
     def clear_current(self):
+        if CAMERA_ID not in (1, 2, 3):
+            print("Камеры 4-9 не имеют зон сбора признаков.")
+            return
         self.pending_points.clear()
         cam = self.zones_cfg["cameras"].setdefault(str(CAMERA_ID), {})
         cam[self.profile] = []
@@ -233,12 +244,12 @@ class Debugger:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 0, 255), 2)
 
         active_mode = "POLYGON EDIT" if self.edit_polygon else "VIEW / FEATURE TEST"
-        gate_text = f"selected zone={self.profile}" if CAMERA_ID in (1, 2) else "single DEFAULT zone"
+        gate_text = f"selected zone={self.profile}" if CAMERA_ID in (1, 2) else ("single DEFAULT zone" if CAMERA_ID == 3 else "FEATURE CAPTURE DISABLED: cameras 4-9")
         lines = [
             f"Camera {CAMERA_ID} | profile={self.profile} | frame={self.frame_id} | {active_mode}",
             gate_text,
             f"Accepted={sum(self.accepted.values())} rejected_similar={sum(self.rejected.values())}",
-            "E edit polygon | 1 LEFT | 2 RIGHT | D DEFAULT | S save | C clear | SPACE pause | Q quit",
+            "E edit polygon | 1 LEFT | 2 RIGHT | D DEFAULT (cam3) | S save | C clear | SPACE pause | Q quit",
         ]
         for i, text in enumerate(lines):
             cv2.putText(view, text, (12, 25 + i * 23), cv2.FONT_HERSHEY_SIMPLEX,
@@ -330,7 +341,7 @@ class Debugger:
                     self.set_profile("LEFT")
                 elif key == ord("2"):
                     self.set_profile("RIGHT")
-                elif key == ord("d"):
+                elif key == ord("d") and CAMERA_ID == 3:
                     self.set_profile("DEFAULT")
                 elif key == ord("s"):
                     self.save_config()
