@@ -133,6 +133,10 @@ def main() -> None:
     ended = set()
     mock_records = []
     car_sequence = 0
+    accepted = Counter()
+    rejected = Counter()
+    transitions = Counter()
+    galleries_closed = Counter()
     trigger_fired = False
     trigger_track_id = None
     started_at = time.time()
@@ -195,11 +199,6 @@ def main() -> None:
                 trigger_track_id = min(active_ids)
                 logging.info("TRIGGER camera=1 track=%d frame=%d", trigger_track_id, frame_ids[1] - 1)
                 print(f"\n[TRIGGER] Camera 1 track={trigger_track_id} entered a feature zone. Capture started.")
-
-        accepted = Counter()
-        rejected = Counter()
-        transitions = Counter()
-        galleries_closed = Counter()
 
         while len(ended) < len(FEATURE_CAMERAS):
             tiles = {}
