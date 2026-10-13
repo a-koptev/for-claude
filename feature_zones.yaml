@@ -1,7 +1,7 @@
 # Coordinates use the 1280x720 frame used by Tracking.py.
 # Empty polygons disable capture until real [x, y] points are marked.
 # Cam 1: LEFT/RIGHT use bottom-center. Cam 2: LEFT/RIGHT use right-edge center.
-# Cam 3: DEFAULT uses top-center. Cameras 4-9: DEFAULT use bottom-center.
+# Cam 3: DEFAULT uses top-center. Cameras 4-9 are not part of feature capture.
 sample_every_n_frames: 3
 similarity_threshold: 0.90
 min_crop_size: 8
@@ -14,16 +14,4 @@ cameras:
     LEFT: []
     RIGHT: []
   3:
-    DEFAULT: []
-  4:
-    DEFAULT: []
-  5:
-    DEFAULT: []
-  6:
-    DEFAULT: []
-  7:
-    DEFAULT: []
-  8:
-    DEFAULT: []
-  9:
     DEFAULT: []
