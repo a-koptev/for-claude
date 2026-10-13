@@ -17,6 +17,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import torch
 import yaml
 from ultralytics import YOLO
 
@@ -35,6 +36,8 @@ WINDOW_NAME = "Parking feature capture"
 ZONES_PATH = ROOT / "feature_zones.yaml"
 REPORT_PATH = ROOT / "feature_capture_run_report.json"
 LOG_PATH = ROOT / "feature_capture_run.log"
+# Ultralytics accepts device index 0 for the first CUDA GPU, or "cpu".
+INFERENCE_DEVICE = 0 if torch.cuda.is_available() else "cpu"
 
 
 def source_for(camera_id: int) -> str:
@@ -187,12 +190,17 @@ def main() -> None:
             plate_imgsz=Config.OCR_PLATE_IMGSZ,
             ocr_device=Config.OCR_DEVICE,
             ocr_batch_size=Config.OCR_BATCH_SIZE,
+            plate_device=INFERENCE_DEVICE,
         )
         for camera_id in FEATURE_CAMERAS:
             managers[camera_id] = FeatureZoneManager(features, str(ZONES_PATH))
 
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(WINDOW_NAME, 1280, 720)
+        if torch.cuda.is_available():
+            print(f"Inference device: CUDA:0 ({torch.cuda.get_device_name(0)})")
+        else:
+            print("Inference device: CPU (CUDA is unavailable in this PyTorch environment)")
         print("Waiting for camera 1 zone trigger. Press Q or Esc to stop.")
         print("Configured feature-capture cameras:", ", ".join(map(str, FEATURE_CAMERAS)))
         print("Camera sources 4-9 are configurable in Config.py but are not used for feature capture.")
@@ -213,7 +221,7 @@ def main() -> None:
             result = models[1].track(
                 frame, persist=True, tracker=Config.YOLO_TRACK_CONFIG_PATH,
                 conf=Config.YOLO_TRACK_CONF_THRESHOLD, iou=Config.YOLO_TRACK_IOU_THRESHOLD,
-                verbose=False,
+                verbose=False, device=INFERENCE_DEVICE,
             )[0]
             boxes, ids, tracks = unpack_tracks(result)
             manager = managers[1]
@@ -272,7 +280,7 @@ def main() -> None:
                 result = models[camera_id].track(
                     frame, persist=True, tracker=Config.YOLO_TRACK_CONFIG_PATH,
                     conf=Config.YOLO_TRACK_CONF_THRESHOLD, iou=Config.YOLO_TRACK_IOU_THRESHOLD,
-                    verbose=False,
+                    verbose=False, device=INFERENCE_DEVICE,
                 )[0]
                 boxes, ids, tracks = unpack_tracks(result)
                 frame_id = frame_ids[camera_id]
