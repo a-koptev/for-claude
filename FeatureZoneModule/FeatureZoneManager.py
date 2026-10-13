@@ -183,7 +183,12 @@ class FeatureZoneManager:
         return vector / norm
 
     def end_track(self, camera_id: int, track_id: int) -> dict[str, Any] | None:
-        gallery = self._galleries.pop((int(camera_id), int(track_id)), None)
+        camera_id, track_id = int(camera_id), int(track_id)
+        gallery = self._galleries.pop((camera_id, track_id), None)
+        # Track IDs can be reused after a gallery closes; don't show stale
+        # similarity metrics for a future track with the same local ID.
+        if not any(existing_track_id == track_id for _, existing_track_id in self._galleries):
+            self.last_comparison_by_track.pop(track_id, None)
         return gallery.as_dict() if gallery is not None else None
 
     def end_tracks_on_exit(self, camera_id: int, transition_events: Iterable[Any]) -> dict[int, dict[str, Any]]:
