@@ -267,8 +267,8 @@ def main() -> None:
                     continue
 
                 # Lazily open each secondary video only when capture begins.
-                # Camera 1 is processed first in this loop; frame_ids[1] has
-                # advanced by one, so frame_ids[1] - 1 is its current frame index.
+                # The trigger frame was already consumed by camera 1; frame_ids[1]
+                # now points to the NEXT frame camera 1 will read in this loop.
                 if camera_id not in captures:
                     source = sources[camera_id]
                     cap = cv2.VideoCapture(source)
@@ -276,7 +276,7 @@ def main() -> None:
                         raise RuntimeError(
                             f"Cannot open camera {camera_id} video source: {source}"
                         )
-                    target_frame = max(0, frame_ids[1] - 1)
+                    target_frame = max(0, frame_ids[1])
                     cap.set(cv2.CAP_PROP_POS_FRAMES, target_frame)
                     captures[camera_id] = cap
                     frame_ids[camera_id] = target_frame
